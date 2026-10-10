@@ -1,4 +1,4 @@
-"""Build the 12 x 12 in Wi-Fi map: payload -> matrix -> a map with the code drawn in as a ward.
+"""Build the Wi-Fi map (12 x 12 in by default): payload -> matrix -> a map with the code drawn in as a ward.
 
 Credentials never go on the command line (shell history). The password comes from
 $WIFI_PASSWORD, a `wifi.env` file (gitignored), or an interactive prompt.
@@ -65,10 +65,12 @@ def legend_entries(a, ssid, password, env) -> tuple[str, str | None]:
     return net, None if a.no_legend_password else pw
 
 
-def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.District):
-    """Inkscape master: final raster, map-only raster and vector QR reference as layers."""
-    s = layout.size
-    inch = layout.inches
+def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.District,
+         sheet: tuple[int, int], art_box: tuple[int, int], art_size: tuple[int, int], inches: tuple[float, float]):
+    """Inkscape master: the whole sheet, plus the vector QR reference as layers (drawn in
+    map pixels, so they sit in a group moved and scaled onto the map)."""
+    (w, h), (ax, ay) = sheet, art_box
+    place = f'transform="translate({ax},{ay}) scale({art_size[0] / layout.width:.6f},{art_size[1] / layout.height:.6f})"'
     def poly(pts):
         return "M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in pts) + " Z"
     dark = "".join(poly(dist.square(c, r, c + 1, r + 1)) for r in range(code.n)
@@ -78,12 +80,12 @@ def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.Distric
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
      xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
      xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-     width="{inch}in" height="{inch}in" viewBox="0 0 {s} {s}">
+     width="{inches[0]:g}in" height="{inches[1]:g}in" viewBox="0 0 {w} {h}">
   <g {lay} inkscape:label="Final artwork" sodipodi:insensitive="true">
-    <image xlink:href="wifi-map-12in.png" width="{s}" height="{s}"/></g>
-  <g {lay} inkscape:label="QR reference (dark modules)" style="display:none;opacity:0.5">
+    <image xlink:href="wifi-map.png" width="{w}" height="{h}"/></g>
+  <g {lay} inkscape:label="QR reference (dark modules)" style="display:none;opacity:0.5" {place}>
     <path d="{dark}" fill="#d00"/></g>
-  <g {lay} inkscape:label="Quiet zone (keep light)" style="display:none">
+  <g {lay} inkscape:label="Quiet zone (keep light)" style="display:none" {place}>
     <path d="{poly(dist.reserve())}" fill="none" stroke="#09f" stroke-width="2"/></g>
 </svg>
 ''')
@@ -94,7 +96,14 @@ def build(a) -> Path:
     ssid, password, security, hidden = credentials(a)
     env = {**_read_env_file(config.ROOT / "wifi.env"), **os.environ}
     payload = qr.wifi_payload(ssid, password, security, hidden)
-    layout = config.Layout(dpi=a.dpi)
+    sheet_w, sheet_h = config.PRINT_SIZE  # --size / --border are read by config (they set the map's extent)
+    border = config.PRINT_BORDER
+    art_w, art_h = (round(v * a.dpi) for v in (sheet_w - 2 * border, sheet_h - 2 * border))
+    # Draw the design at a higher dpi so the whole sheet scales up with its house
+    # plots and lettering, rather than blowing up a 300 dpi raster.
+    scale = config.SCALE
+    layout = config.Layout(dpi=round(a.dpi * scale), width_in=config.DESIGN.width_in,
+                           height_in=config.DESIGN.height_in)
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -113,22 +122,36 @@ def build(a) -> Path:
     print(f"{art['courts']} court(s) elsewhere in town echo the finder patterns")
     final, fixed = guard.guard(art["rgb"], code, dist)
     print(f"guard pass corrected {fixed} module centre(s)")
-    img = Image.fromarray((final * 255).round().astype(np.uint8))
-    frame.draw(img, layout, f"Map data: {model.source}")
-    png = out / "wifi-map-12in.png"
-    img.save(png, dpi=(layout.dpi, layout.dpi), optimize=False)
+    map_img = Image.fromarray((final * 255).round().astype(np.uint8))
+    frame.draw(map_img, layout, f"Map data: {model.source}")
+    if map_img.size != (art_w, art_h):
+        map_img = map_img.resize((art_w, art_h), Image.LANCZOS)
+    img = Image.new("RGB", (round(sheet_w * a.dpi), round(sheet_h * a.dpi)), config.PARCHMENT)
+    art_box = (img.width - art_w) // 2, (img.height - art_h) // 2
+    img.paste(map_img, art_box)
+    del map_img
+    print(f"sheet {sheet_w:g} x {sheet_h:g} in, map {art_w / a.dpi:.2f} x {art_h / a.dpi:.2f} in, "
+          f"{border:g} in border ({img.width} x {img.height} px); map covers "
+          f"{2 * config.RADIUS_MILES:.2f} mi on its long side")
+    png = out / "wifi-map.png"
+    img.save(png, dpi=(a.dpi, a.dpi), optimize=False)
     if not a.no_pdf:
-        img.save(png.with_suffix(".pdf"), resolution=layout.dpi)
+        img.save(png.with_suffix(".pdf"), resolution=a.dpi)
     code.segno().save(str(out / "qr-reference.svg"), scale=10, border=4)
-    _svg(out / "artwork.svg", layout, code, dist)
-    img.resize((1200, 1200), Image.LANCZOS).save(out / "preview.jpg", quality=88)
-    x0, y0, x1, y1 = (int(v) for v in dist.bbox(extra=dist.quiet))
-    img.crop((x0, y0, x1, y1)).save(out / "ward-detail.png")
+    _svg(out / "artwork.svg", layout, code, dist, img.size, art_box, (art_w, art_h), (sheet_w, sheet_h))
+    prev = img.copy()
+    prev.thumbnail((1200, 1200), Image.LANCZOS)
+    prev.save(out / "preview.jpg", quality=88)
+    kx, ky = art_w / layout.width, art_h / layout.height  # ward coordinates are in render pixels
+    bx0, by0, bx1, by1 = dist.bbox(extra=dist.quiet)
+    x0, y0, x1, y1 = int(bx0 * kx), int(by0 * ky), int(bx1 * kx), int(by1 * ky)
+    img.crop((x0 + art_box[0], y0 + art_box[1], x1 + art_box[0], y1 + art_box[1])).save(out / "ward-detail.png")
 
     manifest = {
-        "dpi": layout.dpi, "inches": layout.inches, "version": code.version, "error": code.error,
+        "dpi": a.dpi, "inches": [sheet_w, sheet_h], "border_inches": border,
+        "art_box": [*art_box, art_w, art_h], "render_px": [layout.width, layout.height], "version": code.version, "error": code.error,
         "mask": code.mask, "payload_sha256": code.payload_sha256, "ssid": ssid, "security": security,
-        "district": dist.to_dict(), "module_inches": dist.module / layout.dpi, "map_source": model.source,
+        "district": dist.to_dict(), "module_inches": dist.module / layout.dpi * scale, "map_source": model.source,
         "legend_shows_password": bool(legend) and legend["password"] is not None,
         "legend_references": art["references"],
         "guard_corrections": fixed,
@@ -157,6 +180,11 @@ def main(argv=None):
     lg.add_argument("--legend-password-text", help="default: the password (e.g. set a hint instead)")
     lg.add_argument("--no-legend-password", action="store_true", help="omit the password line")
     lg.add_argument("--no-legend", action="store_true")
+    ap.add_argument("--size", help="print size in inches as WIDTHxHEIGHT, e.g. 16x20 or 24x36; the map fills it "
+                    f"(default: print.size in config.yaml, {config.PRINT_SIZE[0]:g}x{config.PRINT_SIZE[1]:g}). "
+                    "A new size needs its own `make fetch` for the larger area")
+    ap.add_argument("--border", type=float, help="blank border on all sides in inches, for a canvas wrap or "
+                    f"mat (default: print.border in config.yaml, {config.PRINT_BORDER:g})")
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--ss", type=int, default=2, help="supersampling for line art")
     ap.add_argument("--out", default=str(config.ROOT / "build"))

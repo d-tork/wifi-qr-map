@@ -1,6 +1,6 @@
 """Programmatic acceptance test for a finished (or hand-edited) artwork.
 
-    python -m qrmap.validate build/wifi-map-12in.png [--manifest build/manifest.json]
+    python -m qrmap.validate build/wifi-map.png [--manifest build/manifest.json]
 
 Checks, in order:
   1. Print geometry: 12 x 12 in at the declared DPI (PNG pHYs and PDF MediaBox).
@@ -161,16 +161,20 @@ def captures(rgb: np.ndarray, dist: District):
 def check_print(path: Path, manifest) -> dict:
     img = Image.open(path)
     dpi = manifest.get("dpi", 300)
-    want = round(manifest.get("inches", 12) * dpi)
+    inches = manifest.get("inches", 12)
+    inches = list(inches) if isinstance(inches, list) else [inches, inches]
+    want = tuple(round(v * dpi) for v in inches)
     got_dpi = img.info.get("dpi", (None, None))
-    ok = img.size == (want, want) and got_dpi[0] is not None and round(got_dpi[0]) == dpi
+    ok = img.size == want and got_dpi[0] is not None and round(got_dpi[0]) == dpi
     res = {"pixels": img.size, "dpi": got_dpi, "inches": [s / dpi for s in img.size], "ok": ok}
+    manifest_in = inches
     pdf = path.with_suffix(".pdf")
     if pdf.exists():
         m = re.search(rb"/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]", pdf.read_bytes())
         inches = [float(m.group(1)) / 72, float(m.group(2)) / 72] if m else None
+        want_in = [v for v in manifest_in]
         res["pdf_inches"] = inches
-        res["ok"] = ok and inches is not None and all(abs(v - manifest.get("inches", 12)) < 0.01 for v in inches)
+        res["ok"] = ok and inches is not None and all(abs(v - w) < 0.01 for v, w in zip(inches, want_in))
     return res
 
 
@@ -261,7 +265,14 @@ def error_overlay(rgb, manifest, core_err) -> np.ndarray:
 def validate(image: Path, manifest_path: Path | None = None, report: Path | None = None, quiet=False) -> bool:
     manifest_path = manifest_path or image.parent / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    rgb = np.asarray(Image.open(image).convert("RGB"))
+    sheet = Image.open(image).convert("RGB")
+    rgb = np.asarray(sheet)
+    if "art_box" in manifest:  # the map sits inside a border; the ward is placed within it
+        x, y, aw, ah = manifest["art_box"]
+        art = sheet.crop((x, y, x + aw, y + ah))
+        if (aw, ah) != tuple(manifest["render_px"]):
+            art = art.resize(tuple(manifest["render_px"]), Image.LANCZOS)
+        rgb = np.asarray(art)
 
     pr = check_print(image, manifest)
     mod = check_modules(rgb, manifest)
