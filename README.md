@@ -2,14 +2,16 @@
 
 A reproducible pipeline that prints your guest Wi-Fi as a **12 × 12 in, 18th-century
 style plan of Alexandria**: Old Town, Rosemont, and Del Ray (the former Town of
-Potomac). The QR code is **hidden in the map** as a made-up ward of Del Ray. Its built
-house blocks are the dark modules, its empty lots are the light ones, and its three
-walled squares are the finder patterns. A legend cartouche in the river gives the
-network name and password, with a small Wi-Fi mark, for any device that can't scan.
-Every build is checked by decoders before it counts as done.
+Potomac). The QR code is **hidden in the map** as a few made-up blocks of Del Ray. Every
+block on the map is drawn as house plots the size of one QR module, and in the hidden
+blocks a house is a dark module and an empty plot a light one. The finder patterns are
+courtyard blocks, a building type that turns up elsewhere in town too. A legend
+cartouche in the river gives the network name and password, with a small Wi-Fi mark,
+for any device that can't scan. Every build is checked by decoders before it counts as
+done.
 
-Alexandria is only the default. Set any centre point and radius in `config.yaml` to map
-somewhere else (see [Mapping another place](#mapping-another-place)).
+Alexandria is only the default. Set any centre point in `config.yaml` to map somewhere
+else (see [Mapping another place](#mapping-another-place)).
 
 ![demo](examples/demo-preview.jpg)
 
@@ -42,17 +44,17 @@ at the bar"`.
 | Option | Default | Effect |
 |---|---|---|
 | `--center LAT,LON` | `ward.center` in `config.yaml` | Where the hidden ward sits |
-| `--angle DEG` | `ward.angle` in `config.yaml` | Rotate the ward. `-9` matches Old Town's grid. |
-| `--module-in IN` | `0.05` | Printed block size. Bigger is easier to scan and less hidden. |
+| `--angle DEG` | `ward.angle` in `config.yaml` (`auto`) | Rotate the ward. `auto` follows the nearest major street. |
+| `--module-in IN` | `0.05` | Printed module and house-plot size. Bigger is easier to scan; the map's scale stays the same. |
 | `--ecc l/m/q/h` | `q` | Error correction. Higher means more modules, so a bigger ward. |
-| `--version N` | smallest that fits | Force more, smaller-scale blocks |
+| `--version N` | smallest that fits | Force more modules, so more blocks in the ward |
 | `--legend-network-label` / `--legend-password-label` | `Network` / `Password` | Legend labels |
 | `--legend-network-text` / `--legend-password-text` | SSID / password | Legend values |
 | `--no-legend-password`, `--no-legend` | | Omit the password row, or the whole legend |
 
 Location, title, ward and legend position, landmarks, hills and place labels are set in
-`config.yaml`. Hatch pitch, street width, tones, legend text size, palette and layout are
-in `qrmap/config.py`. Legend text can also be set
+`config.yaml`. Plot size, house density, hatch pitch, street widths, tones, legend text
+size, palette and layout are in `qrmap/config.py`. Legend text can also be set
 through `WIFI_LEGEND_*` in `wifi.env`.
 
 ## Outputs (`build/`, gitignored)
@@ -71,32 +73,46 @@ through `WIFI_LEGEND_*` in `wifi.env`.
 
 ```
 credentials ─► Segno WIFI: payload (ECC Q) ─► of 8 valid masks, keep the most town-like
-OSM extract ─► shapely geometry ─► engraved map (Pillow/OpenCV, 2× supersampled)
-                                       │  the ward's footprint is cleared and redrawn:
+OSM extract ─► shapely blocks, cut back from every road ─► each block laid out in plots
+               one module wide: house (dark) or yard (light)
+                                       │  the ward replaces the blocks under it:
                                        ▼
-   dark module  → built block: carmine wash, 45° hatching, ink outline
-   light module → open lot, faint lot lines
-   finder       → walled square with bastions on its three outer corners
-   quiet zone   → more open lots; real streets stop at its edge
+   dark module  → house: carmine wash, 45° hatching, ink outline, some party walls
+   light module → empty plot: the same pale yard wash as every other yard
+   every ~6 / 12 modules → a narrow street along module edges, splitting the ward
+                           into blocks that run the same way as the town's
+   finder       → courtyard block: terraced ring, court, hall in the middle
+   quiet zone   → front gardens, a street round the ward, the neighbours' back yards
                                        │
           legend cartouche + Wi-Fi mark · guard pass · frame ─► validate
 ```
 
-- **Same ink as the rest of the town.** The ward uses the same carmine wash and
-  hatching as Old Town's blocks. Narrow streets split most neighbouring built blocks,
-  and some merge into larger blocks, so from across a room it reads as one more
-  densely built neighbourhood.
+- **One plot size for the whole town.** The scale is fixed so that a house plot on the
+  map (16 m of frontage) prints the same size as a QR module (0.05 in). Every block is
+  divided into plots on a lattice turned to its own long side. Plots on the street
+  front are mostly built and plots behind them mostly yards. The ward's mix of houses
+  and empty plots is the same mix, in the same ink, so it reads as more of the town.
+- **Streets on module edges.** The ward's streets run between modules, never through
+  a module centre, and never through a finder or alignment pattern. Its blocks are
+  about 6 by 12 modules, running the way the blocks around it do. The whole ward is
+  turned to the nearest major street (`ward.angle: auto`).
+- **Courts.** A few big blocks elsewhere in town are built as courts round a hall, so
+  the three finder patterns are one more of a kind. Their proportions are never
+  1:1:3:1:1 both ways (big courts have a 3-plot yard round one building, long ones a
+  long hall), so finder-pattern detectors don't take them for finders. None is placed
+  within a ward's width of the code.
+- **Quiet zone.** The neighbouring blocks run up to a street round the ward and keep
+  their part inside the quiet zone as back yards with no houses. The real streets stop
+  at the yards.
 - **Town-like mask.** Of the eight masks, which are all equally valid, the build
-  keeps the one where built blocks most often join their neighbours, so the ward looks
-  less like scattered pixels.
-- **Geometry rules.** Streets and lot lines run along module edges, never through a
-  module centre. Each finder's bastion is left off the corner facing into the code,
-  so the separator module next to it stays light.
+  keeps the one where houses most often join their neighbours into terraces.
 - **Guard pass.** After rendering, any module centre that lands on the wrong side of
   the light/dark targets is pulled back. With the defaults it corrects 0 modules.
 - **ECC Q instead of H.** The modules are drawn cleanly rather than damaged by art,
   so a lower error-correction level is enough. That keeps the ward small: the demo
-  payload is version 4, 33 × 33 blocks, 1.65 in square.
+  payload is version 4, 33 × 33 modules, 1.65 in square.
+- **Deterministic.** Every random choice (which plots are built, party walls, courts)
+  comes from a fixed seed, so the same inputs give a byte-identical sheet.
 
 ## Validation (`make validate IMAGE=...`)
 
@@ -121,9 +137,10 @@ GIMP or Inkscape. The `manifest.json` from the build has to sit next to the imag
    at least 80% of the stressed ones. Decoded text must hash to the manifest's SHA-256.
 
 Results:
-- **Demo:** 0 / 1089 centre errors, contrast margin 111, 17 / 17 captures read by
-  ZXing and WeChat.
-- **Longer payload, rotated −9°:** a 33-character password at version 7 passes too.
+- **Demo:** 0 / 1089 centre errors, contrast margin 102, 17 / 17 captures read by
+  ZXing and WeChat, guard corrections 0.
+- **Version 7** (`--version 7`, 45 × 45 modules with six alignment patterns) passes too.
+- **The offline schematic** (no OSM cache) passes too.
 - **Plain `cv2.QRCodeDetector`:** misses some captures, so it doesn't gate the build.
 
 **A desktop pass is necessary but not sufficient.** At 0.05 in per module, this code is
@@ -138,48 +155,50 @@ the map". Before ordering the 12 in print:
 
 ## Mapping another place
 
-The map covers a square around a centre point. `radius_miles` is the distance from the
-centre to each edge. A minimal `config.yaml` is just:
+The map covers a square around a centre point. The scale is fixed, because a house plot
+has to print the same size as a QR module, so the sheet always shows about a mile
+from the centre to each edge. A minimal `config.yaml` is just:
 
 ```yaml
 name: Annapolis
 center: [38.9784, -76.4922]
-radius_miles: 1
 ```
 
 Then run `make fetch demo`. To keep several places side by side, give each its own
 file and pass it to every target: `make fetch demo CONFIG=places/annapolis.yaml`.
 
-With only those three keys:
+With only those two keys:
 - **Title:** `A PLAN of ANNAPOLIS`, with no subtitle.
-- **Hidden ward:** sits at the map centre. Set `ward.center` to move it off your house,
-  and `ward.angle` to match the local street grid.
+- **Hidden ward:** sits at the map centre, turned to the nearest major street. Set
+  `ward.center` to move it off your house, and `ward.angle` to a number of degrees to
+  turn it yourself.
 - **Legend:** goes in the lower-left corner. Open water is the traditional spot, if the
   map has any (`legend.center`).
 - **Place names:** come from OSM, ranked from city down to hamlet and placed away from
   the border. Large named waters are labelled at their widest point. A `labels:` list
-  replaces them all with your own (see the Alexandria config).
+  replaces them all with your own (see the Alexandria config). Labels get a knock-out
+  halo so they stay legible over houses.
 - **Landmarks and hills:** none, unless listed under `landmarks:` (by exact OSM name)
   and `hills:`.
 
-Strokes, symbols and lettering keep the same printed size at any radius. A radius of
-about 0.5 to 3 miles reads best as a town plan. Above 3 miles, residential streets are
-left out by default so the map doesn't fill with ink. `minor_roads: true` puts them
-back, at the cost of a much larger Overpass download. The radius is capped at 25 miles.
+Older configs with `radius_miles` are rejected with a message saying to remove it.
 
 ## Map data and accuracy
 
 - **`make fetch`** pulls roads, rail, water (including coastline handling), parks,
   place names, and landmark positions for the `config.yaml` area from the Overpass API,
   and caches them in `data/`. The cache file name includes a hash of the query, so
-  changing the location, radius or landmarks never reuses stale data; builds stop and
-  ask for `make fetch` instead. Commit the cache file if you want reproducible builds.
+  changing the location or landmarks never reuses stale data; builds stop and ask for
+  `make fetch` instead. Commit the cache file if you want reproducible builds.
   Data © OpenStreetMap contributors, ODbL. The attribution is printed in the lower border.
 - **Without a cache**, Alexandria's config (`offline_fallback: alexandria`) falls back to
   a hand-plotted schematic (`qrmap/seed.py`). Old Town's grid is generated from its real
   street order, spacing, and ~9° skew, and the shoreline and arterials come from known
   landmarks. Del Ray's grid spacing and Rosemont's lanes are schematic, so treat that
   version as a layout proof, not a map. Other locations have no fallback.
+- **The houses are invented.** Building positions are not taken from OSM: every block
+  is filled with plots from a seeded random draw. Streets, blocks, water and parks are
+  real.
 - **The ward is invented on purpose.** It replaces whatever real streets lie under its
   footprint.
 - **Period detail is styling, not history.** In the 18th century, only Old Town
@@ -207,14 +226,15 @@ then print then rescan. These corrections came out of building it:
 ## Layout
 
 ```
-config.yaml          location (centre, radius), title, ward and legend position, labels
-qrmap/config.py      loads config.yaml; physical tunables (ward size, hatching, palette, layout)
-qrmap/geo.py         projection + GeoModel (blocks are faces of the street network)
+config.yaml          location (centre), title, ward and legend position, labels
+qrmap/config.py      loads config.yaml; fixed scale and physical tunables (plots, hatching, palette, layout)
+qrmap/geo.py         projection + GeoModel (blocks are faces of the street network, cut back from the roads)
 qrmap/osm.py         Overpass fetch + OSM → GeoModel, place labels
 qrmap/seed.py        hand-plotted Alexandria fallback geography
 qrmap/render_map.py  engraved map art
-qrmap/ward.py        the hidden QR ward, legend cartouche, Wi-Fi mark
-qrmap/district.py    ward placement and module <-> pixel transform (shared with validator)
+qrmap/houses.py      house plots in every block, courts, and the shared house finish
+qrmap/ward.py        the hidden QR ward (house blocks), legend cartouche, Wi-Fi mark
+qrmap/district.py    ward placement, auto angle, module <-> pixel transform (shared with validator)
 qrmap/guard.py       module-centre safety pass
 qrmap/qr.py          Wi-Fi payload, matrix, town-like mask choice
 qrmap/frame.py       graduated neat line, title, scale, attribution

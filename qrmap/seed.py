@@ -19,7 +19,10 @@ from . import config
 from .geo import FRAME, GeoModel, line, poly, proj
 from .osm import config_labels
 
-N, S, W, E = config.NORTH, config.SOUTH, config.WEST, config.EAST
+# The schematic is plotted out to these edges (the old 2-mile sheet) and clipped to the
+# map frame, so its shore polygons stay valid whatever the sheet's own extent.
+N, S = max(config.NORTH, 38.8461), min(config.SOUTH, 38.7879)
+W, E = min(config.WEST, -77.0933), max(config.EAST, -77.0187)
 
 # West-bank land, traced north to south along the Potomac, round Jones Point, up
 # Hunting Creek to the mouth of Cameron Run, then back along the Belle Haven shore.

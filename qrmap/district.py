@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import math
 
+from shapely.geometry import Point
+
 from . import config
 from .geo import WIDTH_M, proj
 
@@ -55,14 +57,35 @@ class District:
         return asdict(self)
 
 
-def place(layout: config.Layout, n: int, center=None, angle=None, module_in=None, quiet=None) -> District:
+def street_angle(model, x: float, y: float, near: float = 800.0) -> float:
+    """Direction of the nearest major road to (x, y) metres, folded into [-45, 45)
+    degrees counter-clockwise, since a square looks the same turned by 90. Falls back
+    to the nearest road of any kind when no major road is within `near` metres."""
+    pt = Point(x, y)
+    major = [g for g, cls, _ in model.roads if cls == "major"]
+    if not major or min(g.distance(pt) for g in major) > near:
+        major = [g for g, _, _ in model.roads]
+    if not major:
+        return 0.0
+    g = min(major, key=pt.distance)
+    s = g.project(pt)
+    a, b = g.interpolate(max(0.0, s - 40)), g.interpolate(min(g.length, s + 40))
+    return (math.degrees(math.atan2(b.y - a.y, b.x - a.x)) + 45) % 90 - 45
+
+
+def place(layout: config.Layout, n: int, center=None, angle=None, module_in=None, quiet=None,
+          model=None) -> District:
+    """Put the ward on the sheet. With no angle given or configured, turn it to the
+    nearest major street in `model`."""
     lat, lon = center or config.DISTRICT_CENTER
+    x, y = proj(lat, lon)
     angle = config.DISTRICT_ANGLE if angle is None else angle
+    if angle is None:
+        angle = round(street_angle(model, x, y), 1) if model is not None else 0.0
     m = max(4, round((module_in or config.MODULE_INCHES) * layout.dpi))
     q = config.QUIET_MODULES if quiet is None else quiet
     x0, y0, x1, y1 = layout.map_box
     k = (x1 - x0) / WIDTH_M
-    x, y = proj(lat, lon)
     cx, cy = x0 + x * k, y1 - y * k
     half = (n + 2 * q) * m / 2 * (abs(math.cos(math.radians(angle))) + abs(math.sin(math.radians(angle))))
     cx = min(max(cx, x0 + half), x1 - half)  # keep the whole ward on the map

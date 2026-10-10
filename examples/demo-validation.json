@@ -25,11 +25,11 @@
     "module_inches": 0.05,
     "core_errors": 0,
     "core_errors_in_function_patterns": 0,
-    "core_contrast_margin": 110.6,
-    "core_mean_dark": 87.4,
-    "core_mean_light": 222.3,
-    "quiet_zone_mean": 209.9,
-    "defocus_module_errors_pct": 0.09,
+    "core_contrast_margin": 101.7,
+    "core_mean_dark": 85.0,
+    "core_mean_light": 212.0,
+    "quiet_zone_mean": 209.3,
+    "defocus_module_errors_pct": 0.46,
     "ok": true
   },
   "decode": {
@@ -45,7 +45,7 @@
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
         "opencv": false,
-        "opencv-aruco": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       },
       {
@@ -60,7 +60,7 @@
         "capture": "close-up 1400px",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -68,7 +68,7 @@
         "capture": "close-up 900px",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -76,8 +76,8 @@
         "capture": "close-up 600px",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
-        "opencv-aruco": false,
+        "opencv": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       },
       {
@@ -101,7 +101,7 @@
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
         "opencv": false,
-        "opencv-aruco": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       },
       {
@@ -109,7 +109,7 @@
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
         "opencv": true,
-        "opencv-aruco": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       },
       {
@@ -124,7 +124,7 @@
         "capture": "close-up sensor noise",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -132,7 +132,7 @@
         "capture": "close-up jpeg q35",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -140,7 +140,7 @@
         "capture": "close-up glare",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -148,7 +148,7 @@
         "capture": "close-up low light",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -157,7 +157,7 @@
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
         "opencv": true,
-        "opencv-aruco": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       },
       {
@@ -173,7 +173,7 @@
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
         "opencv": false,
-        "opencv-aruco": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       }
     ],

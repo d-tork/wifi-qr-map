@@ -23,6 +23,7 @@ from .geo import FRAME, MX as _MX, MY as _MY, GeoModel, Label, proj
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
 MAJOR = {"motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link",
          "primary_link", "secondary_link"}

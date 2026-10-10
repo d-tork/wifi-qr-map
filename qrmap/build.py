@@ -103,8 +103,8 @@ def build(a) -> Path:
 
     code = qr.make(payload, version=a.version, error=a.ecc, score=qr.blockiness)
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
-    dist = district.place(layout, code.n, center=center, angle=a.angle, module_in=a.module_in)
     model = osm.load()
+    dist = district.place(layout, code.n, center=center, angle=a.angle, module_in=a.module_in, model=model)
     print(f"map data: {model.source}")
     print(f"QR version {code.version}-{code.error}, mask {code.mask}: {code.n} modules of "
           f"{dist.module}px ({dist.module / layout.dpi:.3f} in); ward {dist.side / layout.dpi:.2f} in "
@@ -113,6 +113,7 @@ def build(a) -> Path:
     legend = None if a.no_legend else {"title": config.LEGEND_TITLE,
                                        "rows": legend_rows(a, ssid, password, env)}
     art = render_map.render(model, layout, ss=a.ss, district=dist, code=code, legend=legend)
+    print(f"{art['courts']} court(s) elsewhere in town echo the finder patterns")
     final, fixed = guard.guard(art["rgb"], code, dist)
     print(f"guard pass corrected {fixed} module centre(s)")
     img = Image.fromarray((final * 255).round().astype(np.uint8))
@@ -150,8 +151,10 @@ def main(argv=None):
     ap.add_argument("--version", type=int, help="force a larger QR version (more, smaller blocks)")
     ap.add_argument("--ecc", default=config.ECC, choices=list("lmqh"), help="error correction level")
     ap.add_argument("--center", help="ward centre as LAT,LON (default: ward.center in config.yaml)")
-    ap.add_argument("--angle", type=float, help="ward rotation in degrees (default: ward.angle in config.yaml)")
-    ap.add_argument("--module-in", type=float, help=f"module size in inches (default {config.MODULE_INCHES})")
+    ap.add_argument("--angle", type=float, help="ward rotation in degrees (default: ward.angle in config.yaml, "
+                    "or the nearest major street's direction)")
+    ap.add_argument("--module-in", type=float, help=f"module and house-plot size in inches (default {config.MODULE_INCHES}); "
+                    "the map's scale stays fixed")
     lg = ap.add_argument_group("legend (fallback text for devices that can't scan)")
     lg.add_argument("--legend-network-label", help=f"default {config.LEGEND_NETWORK_LABEL!r}")
     lg.add_argument("--legend-password-label", help=f"default {config.LEGEND_PASSWORD_LABEL!r}")
