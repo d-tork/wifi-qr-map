@@ -10,20 +10,37 @@ from . import config
 from .geo import MY, WIDTH_M, proj
 from .render_map import font
 
-MILE = 1609.344
+MILE = config.MILE
+# Border graduations (seconds of arc), and scale bars as
+# (miles, title, divisions, middle label, end label).
+STEPS = (5, 10, 15, 30, 60, 120, 300, 600)
+SCALES = ((0.25, "a Quarter Mile", 2, "1 Furlong", "2 Furlongs"),
+          (0.5, "Half a Mile", 4, "2 Furlongs", "4 Furlongs"),
+          (1, "One Mile", 8, "4 Furlongs", "1 Mile"),
+          (2, "Two Miles", 4, "1 Mile", "2 Miles"),
+          (5, "Five Miles", 5, "", "5 Miles"))
 
 
 def _dms(v: float, pos: str, neg: str) -> str:
     h = pos if v >= 0 else neg
-    v = abs(v)
-    d = int(v)
-    m = round((v - d) * 60)
-    if m == 60:
-        d, m = d + 1, 0
-    return f"{d}°{m:02d}' {h}"
+    sec = round(abs(v) * 3600)
+    d, m, s = sec // 3600, sec // 60 % 60, sec % 60
+    return f"{d}°{m:02d}' {s:02d}\" {h}" if s else f"{d}°{m:02d}' {h}"
 
 
-def draw(img: Image.Image, layout: config.Layout, source: str, subtitle: str | None = None):
+def graduation() -> float:
+    """Border band width in degrees: at most 16 bands along each side."""
+    span = (config.NORTH - config.SOUTH) * 3600
+    return next((s for s in STEPS if span / s <= 16), STEPS[-1]) / 3600
+
+
+def scale_bar() -> tuple:
+    """Longest scale that fits in 40% of the map's width."""
+    fits = [sc for sc in SCALES if sc[0] * MILE <= 0.4 * WIDTH_M]
+    return fits[-1] if fits else SCALES[0]
+
+
+def draw(img: Image.Image, layout: config.Layout, source: str):
     dr = ImageDraw.Draw(img)
     ink = config.INK
     dpi = layout.dpi
@@ -32,12 +49,12 @@ def draw(img: Image.Image, layout: config.Layout, source: str, subtitle: str | N
     band = round(0.085 * dpi)
     lw = max(1, round(dpi / 150))
 
-    # Graduated border: alternating ink/paper every 15 seconds of arc.
+    # Graduated border: alternating ink/paper bands of a few seconds of arc.
     dr.rectangle([x0 - 1, y0 - 1, x1, y1], outline=ink, width=lw)
     dr.rectangle([x0 - band, y0 - band, x1 + band, y1 + band], outline=ink, width=lw)
     dr.rectangle([x0 - band - 3 * lw, y0 - band - 3 * lw, x1 + band + 3 * lw, y1 + band + 3 * lw],
                  outline=ink, width=lw * 2)
-    step = 15 / 3600
+    step = graduation()
     small = font("italic", dpi * 0.085)
 
     lat = math.floor(config.SOUTH / step) * step
@@ -76,24 +93,27 @@ def draw(img: Image.Image, layout: config.Layout, source: str, subtitle: str | N
     top = y0 - band - round(0.2 * dpi)
     title = font("roman", dpi * 0.30)
     sub = font("italic", dpi * 0.135)
-    dr.text((cx, top - round(0.24 * dpi)), "A  PLAN  of  the  TOWN  of  ALEXANDRIA", font=title, fill=ink, anchor="ms")
-    dr.text((cx, top - round(0.01 * dpi)),
-            subtitle or "with ROSEMONT and the late TOWN of POTOMAC, call’d DEL RAY, in VIRGINIA",
-            font=sub, fill=ink, anchor="ms")
+    if config.SUBTITLE:
+        dr.text((cx, top - round(0.24 * dpi)), config.TITLE, font=title, fill=ink, anchor="ms")
+        dr.text((cx, top - round(0.01 * dpi)), config.SUBTITLE, font=sub, fill=ink, anchor="ms")
+    else:
+        dr.text((cx, top - round(0.08 * dpi)), config.TITLE, font=title, fill=ink, anchor="ms")
 
-    # Scale of one mile, divided into furlongs.
+    # Scale bar, divided into furlongs or miles.
+    miles, name, parts, mid, end = scale_bar()
     sy = y1 + band + round(0.36 * dpi)
     sx = x0
-    L = MILE * k
+    L = miles * MILE * k
     h = round(0.05 * dpi)
-    for f in range(8):
-        xa, xb = sx + L * f / 8, sx + L * (f + 1) / 8
+    for f in range(parts):
+        xa, xb = sx + L * f / parts, sx + L * (f + 1) / parts
         dr.rectangle([xa, sy, xb, sy + h], outline=ink, width=lw, fill=ink if f % 2 == 0 else None)
     lab = font("italic", dpi * 0.09)
     dr.text((sx, sy + h + 4 * lw), "0", font=lab, fill=ink, anchor="mt")
-    dr.text((sx + L / 2, sy + h + 4 * lw), "4 Furlongs", font=lab, fill=ink, anchor="mt")
-    dr.text((sx + L, sy + h + 4 * lw), "1 Mile", font=lab, fill=ink, anchor="mt")
-    dr.text((sx + L / 2, sy - 4 * lw), "A Scale of One Mile", font=lab, fill=ink, anchor="ms")
+    if mid:
+        dr.text((sx + L / 2, sy + h + 4 * lw), mid, font=lab, fill=ink, anchor="mt")
+    dr.text((sx + L, sy + h + 4 * lw), end, font=lab, fill=ink, anchor="mt")
+    dr.text((sx + L / 2, sy - 4 * lw), f"A Scale of {name}", font=lab, fill=ink, anchor="ms")
 
     attrib = font("italic", dpi * 0.075)
     dr.text((x1, sy + h // 2), source, font=attrib, fill=ink, anchor="rm")

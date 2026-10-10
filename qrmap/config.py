@@ -1,22 +1,66 @@
-"""Tunables for the Wi-Fi QR map. Everything physical lives here."""
+"""Tunables for the Wi-Fi QR map. Location comes from config.yaml; physical tunables live here."""
 
 from dataclasses import dataclass
 import math
+import os
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 FONTS = ROOT / "fonts"
 DATA = ROOT / "data"
+MILE = 1609.344
 
-# Geographic extent: Old Town (south/east), Rosemont (west), Del Ray / the former
-# Town of Potomac (north), with the Potomac on the east and Hunting Creek on the
-# south. Chosen to be square on the ground at this latitude so the map is not
-# stretched on a square sheet.
-SOUTH, NORTH = 38.7880, 38.8460
-_LON_C = -77.0560
-_HALF_W_DEG = ((NORTH - SOUTH) * 110_540 / 2) / (111_320 * math.cos(math.radians((SOUTH + NORTH) / 2)))
-WEST, EAST = _LON_C - _HALF_W_DEG, _LON_C + _HALF_W_DEG
+# --- Location, from config.yaml (or $QRMAP_CONFIG) ---------------------------------
+CONFIG_FILE = Path(os.environ.get("QRMAP_CONFIG") or ROOT / "config.yaml")
+
+
+def _load(path: Path) -> dict:
+    if not path.exists():
+        raise SystemExit(f"Config file not found: {path}")
+    cfg = yaml.safe_load(path.read_text()) or {}
+    try:
+        lat, lon = (float(v) for v in cfg["center"])
+        r = float(cfg["radius_miles"])
+    except (KeyError, TypeError, ValueError):
+        raise SystemExit(f"{path}: needs `center: [lat, lon]` and `radius_miles: <number>`")
+    if not (-80 <= lat <= 80 and -180 <= lon <= 180):
+        raise SystemExit(f"{path}: center {lat}, {lon} is out of range (|lat| <= 80)")
+    if not 0.1 <= r <= 25:
+        raise SystemExit(f"{path}: radius_miles must be between 0.1 and 25")
+    return cfg
+
+
+def _latlon(v, default):
+    return default if v is None else (float(v[0]), float(v[1]))
+
+
+CFG = _load(CONFIG_FILE)
+NAME = str(CFG.get("name") or "the Map")
+CENTER = _latlon(CFG["center"], None)
+RADIUS_MILES = float(CFG["radius_miles"])
+
+# The map is a square 2r on a side on the ground, so it is not stretched on a square sheet.
+_HALF_M = RADIUS_MILES * MILE
+_HALF_H_DEG = _HALF_M / 110_540
+_HALF_W_DEG = _HALF_M / (111_320 * math.cos(math.radians(CENTER[0])))
+SOUTH, NORTH = CENTER[0] - _HALF_H_DEG, CENTER[0] + _HALF_H_DEG
+WEST, EAST = CENTER[1] - _HALF_W_DEG, CENTER[1] + _HALF_W_DEG
 BBOX = (SOUTH, WEST, NORTH, EAST)  # Overpass order
+
+# Stroke widths, symbol sizes and the like are tuned in metres for a 2-mile radius. They
+# scale with the map so they print the same size at any radius.
+STYLE = RADIUS_MILES / 2.0
+
+TITLE = CFG.get("title") or f"A  PLAN  of  {NAME.upper()}"
+SUBTITLE = CFG.get("subtitle") or ""
+_minor = CFG.get("minor_roads")
+MINOR_ROADS = RADIUS_MILES <= 3 if _minor is None else bool(_minor)
+LANDMARKS = dict(CFG.get("landmarks") or {})  # OSM name -> temple|church|market|lighthouse
+HILLS = [(float(a), float(b), float(c)) for a, b, c in CFG.get("hills") or []]
+LABELS = CFG.get("labels")  # None -> label places from OSM
+OFFLINE_FALLBACK = CFG.get("offline_fallback")
 
 
 @dataclass(frozen=True)
@@ -58,8 +102,9 @@ FIELD_WASH = (222, 205, 150)
 # Each dark module is a hatched block, each light module a lane or yard. The ward sits
 # at DISTRICT_CENTER, turned DISTRICT_ANGLE degrees to match the street grid around it,
 # inside a ring of open ground (the quiet zone) where the real streets stop.
-DISTRICT_CENTER = (38.8276, -77.0572)  # Del Ray, the former Town of Potomac
-DISTRICT_ANGLE = 0.0  # degrees counter-clockwise; Old Town's grid is about -9
+_WARD = CFG.get("ward") or {}
+DISTRICT_CENTER = _latlon(_WARD.get("center"), CENTER)
+DISTRICT_ANGLE = float(_WARD.get("angle") or 0.0)  # degrees counter-clockwise
 MODULE_INCHES = 0.05  # printed module size; 0.05 in = 15 px at 300 dpi
 QUIET_MODULES = 3  # open ground around the symbol, in modules (ISO asks 4; 3 tests fine)
 ECC = "q"  # l/m/q/h. Clean rendering needs no art-damage budget; Q keeps modules large.
@@ -76,7 +121,8 @@ CORE_LIGHT = 80.0
 CORE_DARK = 44.0
 
 # --- Legend cartouche (fallback for devices that cannot scan) ---------------------
-LEGEND_CENTER = (38.8395, -77.0300)  # in the river, where engravers put cartouches
+# Engravers put cartouches in open water; set legend.center in config.yaml to do the same.
+LEGEND_CENTER = _latlon((CFG.get("legend") or {}).get("center"), (SOUTH, WEST))
 LEGEND_TITLE = "REFERENCES"
 LEGEND_NETWORK_LABEL = "Network"
 LEGEND_PASSWORD_LABEL = "Password"

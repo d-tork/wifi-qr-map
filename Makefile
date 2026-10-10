@@ -3,12 +3,15 @@ PY      ?= .venv/bin/python
 OUT     ?= build
 IMAGE   ?= $(OUT)/wifi-map-12in.png
 ARGS    ?=
+CONFIG  ?= config.yaml
+export QRMAP_CONFIG := $(abspath $(CONFIG))
 
 .PHONY: help venv fetch demo build validate test proof clean
 
 help:
 	@echo "make venv      create .venv and install pinned dependencies"
-	@echo "make fetch     download the OpenStreetMap extract (needs internet; cached in data/)"
+	@echo "make fetch     download OpenStreetMap data for config.yaml's location (cached in data/)"
+	@echo "               any target takes CONFIG=other.yaml to map somewhere else"
 	@echo "make demo      render with dummy credentials, then validate"
 	@echo "make build     render with real credentials (wifi.env / env vars / prompt), then validate"
 	@echo "make validate  re-validate IMAGE=... (e.g. after editing in GIMP/Inkscape)"

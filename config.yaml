@@ -1,0 +1,53 @@
+# Where the map is. Change `center` and `radius_miles`, run `make fetch`, then `make demo`.
+# Use another file with `make fetch demo CONFIG=path/to/other.yaml`.
+
+name: Alexandria             # names the OSM cache file in data/, and the default title
+center: [38.8170, -77.0560]  # lat, lon of the middle of the map
+radius_miles: 2.0            # centre to each edge; the sheet shows a 2r x 2r square
+
+title: "A  PLAN  of  the  TOWN  of  ALEXANDRIA"  # default: "A  PLAN  of  <NAME>"
+subtitle: "with ROSEMONT and the late TOWN of POTOMAC, call’d DEL RAY, in VIRGINIA"
+
+# minor_roads: true          # residential streets; default: only when radius_miles <= 3
+
+ward:                        # the hidden QR code
+  center: [38.8276, -77.0572]  # default: the map centre (Del Ray, the former Town of Potomac)
+  angle: 0                   # degrees counter-clockwise; Old Town's grid is about -9
+
+legend:
+  center: [38.8395, -77.0300]  # in the river; default: the lower-left corner of the map
+
+# OSM features (exact `name` tag) drawn as symbols: temple | church | market | lighthouse
+landmarks:
+  George Washington Masonic National Memorial: temple
+  Christ Church: church
+  Market Square: market
+  Jones Point Lighthouse: lighthouse
+
+# Hachured hills: [lat, lon, radius in metres]
+hills:
+  - [38.8076, -77.0661, 260]
+  - [38.8210, -77.0790, 380]
+  - [38.8120, -77.0860, 300]
+
+# Place names. Leave this out to label towns, neighbourhoods and large waters from OSM.
+# style: caps | italic | sc; size is relative; angle in degrees; tracking in em.
+labels:
+  - {at: [38.8005, -77.0470], text: ALEXANDRIA, size: 2.3, style: caps, angle: 9, tracking: 0.35}
+  - {at: [38.8125, -77.0700], text: ROSEMONT, size: 1.5, style: caps, tracking: 0.3}
+  # Subtitle first: labels displaced by the QR ward stack upward in order.
+  - {at: [38.8282, -77.0572], text: "now call'd Del Ray", size: 1.05}
+  - {at: [38.8300, -77.0572], text: TOWN of POTOMAC, size: 1.45, style: caps, tracking: 0.12}
+  - {at: [38.8180, -77.0310], text: "POTOMAC  RIVER", size: 2.4, style: caps, angle: 82, tracking: 0.25}
+  - {at: [38.7908, -77.0520], text: Hunting Creek, size: 1.15, angle: -8}
+  - {at: [38.8452, -77.0590], text: Four Mile Run, size: 1.0, angle: -5}
+  - {at: [38.8000, -77.0770], text: Cameron Run, size: 1.0, angle: 18}
+  - {at: [38.8052, -77.0700], text: "Shooter's Hill", size: 0.95}
+  - {at: [38.8000, -77.0198], text: MARYLAND, size: 1.2, style: caps, angle: 88, tracking: 0.3}
+  - {at: [38.7889, -77.0442], text: Jones Point, size: 0.9}
+  - {at: [38.8310, -77.0412], text: Daingerfield I., size: 0.85, angle: 80}
+  - {at: [38.8300, -77.0475], text: Potomac Yard, size: 0.85, angle: 88}
+
+# With no OSM cache, draw the hand-plotted Alexandria schematic (qrmap/seed.py) instead of
+# stopping. Only meaningful for this location.
+offline_fallback: alexandria

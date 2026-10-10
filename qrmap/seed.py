@@ -4,6 +4,7 @@ This is a SCHEMATIC: the Old Town grid is generated from its real street order,
 spacing and ~9 degree skew, and the shoreline and arterials are plotted from known
 landmarks, but positions are good to tens of metres at best and Rosemont's local
 streets are placeholders. Run `make fetch` for the accurate OSM-based map.
+Used only when config.yaml says `offline_fallback: alexandria`.
 Only street names whose order is well established are labelled here.
 """
 
@@ -15,7 +16,8 @@ from shapely.geometry import LineString
 from shapely.ops import unary_union
 
 from . import config
-from .geo import FRAME, GeoModel, Label, line, poly, proj
+from .geo import FRAME, GeoModel, line, poly, proj
+from .osm import config_labels
 
 N, S, W, E = config.NORTH, config.SOUTH, config.WEST, config.EAST
 
@@ -170,25 +172,5 @@ def build() -> GeoModel:
         (*proj(38.7903, -77.0410), "lighthouse", "Jones Point Light"),
         (*proj(38.8160, -77.0700), "church", ""),
     ]
-    m.labels = default_labels()
+    m.labels = config_labels() or []
     return m
-
-
-def default_labels() -> list[Label]:
-    """Place names. Shared by the seed and OSM models; street names come from data."""
-    return [
-        Label(38.8005, -77.0470, "ALEXANDRIA", 2.3, "caps", 9, 0.35),
-        Label(38.8125, -77.0700, "ROSEMONT", 1.5, "caps", 0, 0.3),
-        # Listed subtitle-first: labels displaced by the QR ward stack upward in order.
-        Label(38.8282, -77.0572, "now call'd Del Ray", 1.05, "italic"),
-        Label(38.8300, -77.0572, "TOWN of POTOMAC", 1.45, "caps", 0, 0.12),
-        Label(38.8180, -77.0310, "POTOMAC  RIVER", 2.4, "caps", 82, 0.25),
-        Label(38.7908, -77.0520, "Hunting Creek", 1.15, "italic", -8),
-        Label(38.8452, -77.0590, "Four Mile Run", 1.0, "italic", -5),
-        Label(38.8000, -77.0770, "Cameron Run", 1.0, "italic", 18),
-        Label(38.8052, -77.0700, "Shooter's Hill", 0.95, "italic"),
-        Label(38.8000, -77.0198, "MARYLAND", 1.2, "caps", 88, 0.3),
-        Label(38.7889, -77.0442, "Jones Point", 0.9, "italic"),
-        Label(38.8310, -77.0412, "Daingerfield I.", 0.85, "italic", 80),
-        Label(38.8300, -77.0475, "Potomac Yard", 0.85, "italic", 88),
-    ]

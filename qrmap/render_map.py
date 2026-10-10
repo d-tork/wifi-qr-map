@@ -38,13 +38,14 @@ class Canvas:
         self.size = layout.size * ss
         x0, y0, x1, y1 = layout.map_box
         self.box = (x0 * ss, y0 * ss, x1 * ss, y1 * ss)
-        self.k = (x1 - x0) * ss / WIDTH_M  # pixels per metre
+        self.k = (x1 - x0) * ss / WIDTH_M  # pixels per metre on the ground
 
     def xy(self, x: float, y: float) -> tuple[float, float]:
         return self.box[0] + x * self.k, self.box[3] - y * self.k
 
     def m(self, metres: float) -> float:
-        return metres * self.k
+        """Stroke or symbol size, in metres at the 2-mile reference scale -> pixels."""
+        return metres * config.STYLE * self.k
 
     def new(self) -> Image.Image:
         return Image.new("L", (self.size, self.size), 0)
@@ -166,7 +167,8 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
                 pat = _hatch(m.size[::-1], max(4, cv.m(11)), lw, rng.uniform(0, 180))
                 region = _arr(layers["ink"].crop(bb))
                 layers["ink"].paste(Image.fromarray(np.maximum(region, np.minimum(_arr(m), pat) // 2)), bb[:2])
-            cv.line(d["ink"], c.exterior, lw * 1.2, 160)  # hedge
+            for p in _polys(c):
+                cv.line(d["ink"], p.exterior, lw * 1.2, 160)  # hedge
 
     # --- parks and woods: tree symbols ---
     for p in model.parks:
@@ -177,10 +179,10 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
         if p.is_empty:
             continue
         minx, miny, maxx, maxy = p.bounds
-        sp = 38.0
+        sp = 38.0 * config.STYLE
         for gx in np.arange(minx, maxx, sp):
             for gy in np.arange(miny, maxy, sp * 0.85):
-                x, y = gx + rng.uniform(-12, 12), gy + rng.uniform(-10, 10)
+                x, y = gx + rng.uniform(-12, 12) * config.STYLE, gy + rng.uniform(-10, 10) * config.STYLE
                 if not p.contains(_pt(x, y)):
                     continue
                 cx, cy = cv.xy(x, y)
@@ -193,7 +195,7 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     # --- hills: radial hachures ---
     for hx, hy, hr in model.hills:
         cx, cy = cv.xy(hx, hy)
-        R = cv.m(hr)
+        R = hr * cv.k  # hills are real ground sizes
         n = int(2 * math.pi * R / max(3, lw * 4.5))
         for i in range(n):
             a = 2 * math.pi * i / n + rng.uniform(-0.02, 0.02)
@@ -209,7 +211,8 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     blocks = model.blocks()
     for b in blocks:
         cv.polygon(d["blocks"], b)
-        cv.line(d["ink"], b.exterior, lw * 1.3, 235)
+        for p in _polys(b):  # shrinking a block off the kerb can split it in two
+            cv.line(d["ink"], p.exterior, lw * 1.3, 235)
     bmask = _arr(layers["blocks"])
     hatch = _hatch((S, S), max(4, cv.m(7.5)), lw, 45)
     ink = np.maximum(_arr(layers["ink"]), np.minimum(bmask, hatch) * 0.8).astype(np.uint8)
@@ -233,11 +236,13 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
         for ls in _lines(r.intersection(land)):
             cv.line(d["ink"], ls, lw * 2.2, 240)
             L = ls.length
-            for t in np.arange(0, L, 30):
+            tick = 9 * config.STYLE
+            for t in np.arange(0, L, 30 * config.STYLE):
                 p0, p1 = ls.interpolate(t), ls.interpolate(min(L, t + 1))
                 dx, dy = p1.x - p0.x, p1.y - p0.y
                 n = math.hypot(dx, dy) or 1
-                a, b = cv.xy(p0.x - dy / n * 9, p0.y + dx / n * 9), cv.xy(p0.x + dy / n * 9, p0.y - dx / n * 9)
+                a = cv.xy(p0.x - dy / n * tick, p0.y + dx / n * tick)
+                b = cv.xy(p0.x + dy / n * tick, p0.y - dx / n * tick)
                 d["ink"].line([a, b], fill=220, width=max(1, round(lw)))
 
     # --- streams: double line ---
@@ -386,11 +391,11 @@ def _place_labels(cv: Canvas, ink_img, model, roads, occupied, rng):
         if name in seen:
             continue
         ls, cls = max(parts, key=lambda p: p[0].length)
-        if ls.length < 300:
+        if ls.length < 300 * config.STYLE:
             continue
         fnt = font("italic", base * (0.78 if cls == "major" else 0.62))
         txt = _text_img(name, fnt, 0)
-        if cv.m(ls.length) < txt.width * 1.3:
+        if ls.length * cv.k < txt.width * 1.3:
             continue
         for frac in (0.5, 0.3, 0.7):
             p = ls.interpolate(frac, normalized=True)

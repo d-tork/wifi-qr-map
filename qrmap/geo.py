@@ -1,7 +1,8 @@
 """Geographic model shared by the OSM loader and the hand-plotted fallback.
 
 All geometry is in local metres (x east, y north) from the south-west corner of
-config.BBOX, using an equirectangular projection, which is exact enough over 6 km.
+config.BBOX, using an equirectangular projection, which is exact enough at the scale
+of a town plan (a few miles across).
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ class GeoModel:
 
     def blocks(self, min_area=1_500, max_area=160_000):
         """City blocks: faces of the street network, minus water, shrunk off the kerb."""
+        min_area *= config.STYLE ** 2  # too small to print; max_area is a real-world size
         lines = [g for g, cls, _ in self.roads if cls != "path"] + list(self.rail)
         lines.append(FRAME.exterior)
         faces = polygonize(unary_union(lines))
@@ -68,7 +70,7 @@ class GeoModel:
         for f in faces:
             if not (min_area <= f.area <= max_area):
                 continue
-            f = f.intersection(land).buffer(-9, join_style=2)
+            f = f.intersection(land).buffer(-9 * config.STYLE, join_style=2)
             if f.is_empty or f.area < min_area * 0.4:
                 continue
             out.append(f)

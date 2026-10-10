@@ -25,10 +25,10 @@
     "module_inches": 0.05,
     "core_errors": 0,
     "core_errors_in_function_patterns": 0,
-    "core_contrast_margin": 115.7,
-    "core_mean_dark": 88.8,
-    "core_mean_light": 227.5,
-    "quiet_zone_mean": 208.2,
+    "core_contrast_margin": 110.6,
+    "core_mean_dark": 87.4,
+    "core_mean_light": 222.3,
+    "quiet_zone_mean": 209.9,
     "defocus_module_errors_pct": 0.09,
     "ok": true
   },
@@ -60,7 +60,7 @@
         "capture": "close-up 1400px",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": false,
+        "opencv": true,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -76,7 +76,7 @@
         "capture": "close-up 600px",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": false,
+        "opencv": true,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -84,7 +84,7 @@
         "capture": "close-up rotated 17deg",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -116,8 +116,8 @@
         "capture": "close-up blur sigma 2.5 @1400",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
-        "opencv-aruco": false,
+        "opencv": false,
+        "opencv-aruco": true,
         "opencv-wechat": true
       },
       {
@@ -132,7 +132,7 @@
         "capture": "close-up jpeg q35",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": false,
+        "opencv": true,
         "opencv-aruco": false,
         "opencv-wechat": true
       },
@@ -164,7 +164,7 @@
         "capture": "sheet 1500px (arm's length)",
         "zxing-cpp": true,
         "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
-        "opencv": true,
+        "opencv": false,
         "opencv-aruco": false,
         "opencv-wechat": true
       },

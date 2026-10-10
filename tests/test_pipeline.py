@@ -72,3 +72,27 @@ def test_legend_rows():
     assert legend_rows(a, "Guest", "pw", {}) == [("Network", "Guest"), ("Key", "pw")]
     a.no_legend_password = True
     assert legend_rows(a, "Guest", "pw", {}) == [("Network", "Guest")]
+
+
+def test_config_bbox_is_square_around_center():
+    from qrmap.geo import HEIGHT_M, WIDTH_M
+    side = 2 * config.RADIUS_MILES * config.MILE
+    assert abs(WIDTH_M - side) < 1 and abs(HEIGHT_M - side) < 1
+    assert abs((S + N) / 2 - config.CENTER[0]) < 1e-9 and abs(MID - config.CENTER[1]) < 1e-9
+
+
+def test_query_and_cache_follow_config():
+    q = osm.query()
+    assert ",".join(f"{v:.5f}" for v in config.BBOX) in q
+    assert all(f'"name"="{n}"' in q for n in config.LANDMARKS)
+    assert osm.cache_path().parent == config.DATA and osm.cache_path().suffix == ".json"
+
+
+def test_osm_place_labels_when_config_has_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "LABELS", None)
+    town = {"type": "node", "lat": (S + N) / 2, "lon": MID, "tags": {"place": "town", "name": "Testville"}}
+    edge = {"type": "node", "lat": N - 1e-5, "lon": MID, "tags": {"place": "hamlet", "name": "Edge"}}
+    path = tmp_path / "osm.json"
+    path.write_text(json.dumps({"elements": [edge, town]}))
+    labels = osm.build(path).labels
+    assert [lb.text for lb in labels] == ["Testville"]  # ranked, and nothing on the neat line
