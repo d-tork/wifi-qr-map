@@ -1,13 +1,23 @@
 # Where the map is. Change `center`, run `make fetch`, then `make demo`.
 # Use another file with `make fetch demo CONFIG=path/to/other.yaml`.
-# The scale is fixed (a house plot is one QR module), so the sheet shows about a mile
-# from `center` to each edge.
+# The scale is fixed (a house plot is one QR module), so the 12 x 12 in sheet shows about a
+# mile from `center` to each edge (more on a bigger one).
 
 name: Alexandria             # names the OSM cache file in data/, and the default title
 center: [38.8165, -77.0480]  # lat, lon of the middle of the map
 
 title: "A  PLAN  of  the  TOWN  of  ALEXANDRIA"  # default: "A  PLAN  of  <NAME>"
 subtitle: "with ROSEMONT and the late TOWN of POTOMAC, call’d DEL RAY, in VIRGINIA"
+
+# Print size in inches (WIDTHxHEIGHT) and a blank border on all sides, e.g. for a canvas
+# that wraps round the frame. The map fills the sheet inside the border, scaled to the
+# short side (so the code and houses grow with it) and showing more ground along the long
+# side. `make fetch build ARGS="--size 24x36 --border 3"` overrides; each size needs its
+# own fetch. Big sheets are big rasters (24 in is 7200 px square at 300 dpi): allow
+# plenty of memory, or lower --dpi.
+print:
+  size: 12x12
+  border: 0
 
 ward:                        # the hidden QR code
   center: [38.8238, -77.0580]  # default: the map centre (Del Ray, the former Town of Potomac)

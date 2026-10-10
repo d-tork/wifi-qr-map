@@ -32,6 +32,8 @@ make fetch           # one-off per location: OpenStreetMap extract -> data/osm-<
 make demo            # dummy credentials -> build/, then validate
 cp wifi.env.example wifi.env && $EDITOR wifi.env
 make build           # your network (or: WIFI_PASSWORD=... make build ARGS="--ssid MyGuest")
+# bigger print with a 3 in wrap border (fetch the larger area first):
+#   make fetch build ARGS="--size 24x36 --border 3"
 make proof           # 8 x 8 in PDF of the sheet, for a cheap test print
 ```
 
@@ -48,6 +50,8 @@ print no password line.
 |---|---|---|
 | `--center LAT,LON` | `ward.center` in `config.yaml` | Where the hidden ward sits |
 | `--angle DEG` | `ward.angle` in `config.yaml` (`auto`) | Rotate the ward. `auto` follows the nearest major street. |
+| `--size WxH` | `print.size` in `config.yaml` (`12x12`) | Print size in inches, e.g. `16x20`, `24x36`. The map fills the sheet inside the border at the 12 in design's scale for the short side, scaled up with the sheet, so a longer sheet shows more ground along its long side. Each size needs its own `make fetch ARGS="--size ..."` (same flags). |
+| `--border IN` | `print.border` (`0`) | Blank parchment border on all sides, for a canvas wrap or mat |
 | `--module-in IN` | `0.05` | Printed module and house-plot size. Bigger is easier to scan; the map's scale stays the same. |
 | `--ecc l/m/q/h` | `q` | Error correction. Higher means more modules, so a bigger ward. |
 | `--version N` | smallest that fits | Force more modules, so more blocks in the ward |
@@ -63,8 +67,8 @@ through `WIFI_LEGEND_*` in `wifi.env`.
 
 | File | What it is |
 |---|---|
-| `wifi-map-12in.png` | Final art, 3600 × 3600 px, 300 dpi (pHYs set) |
-| `wifi-map-12in.pdf` | Same, on a 12 × 12 in page, for the print shop |
+| `wifi-map.png` | Final art; 3600 × 3600 px at the default 12 × 12 in, 300 dpi (pHYs set) |
+| `wifi-map.pdf` | Same, on a page of the print size, for the print shop |
 | `ward-detail.png` | Crop of the hidden ward at 1:1 |
 | `artwork.svg` | Inkscape master: the final raster, plus hidden layers with the vector QR reference and the quiet-zone outline |
 | `qr-reference.svg` | The plain QR code, for comparison |

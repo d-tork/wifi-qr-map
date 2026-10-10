@@ -35,7 +35,7 @@ class Canvas:
 
     def __init__(self, layout: config.Layout, ss: int):
         self.layout, self.ss = layout, ss
-        self.size = layout.size * ss
+        self.width, self.height = layout.width * ss, layout.height * ss
         x0, y0, x1, y1 = layout.map_box
         self.box = (x0 * ss, y0 * ss, x1 * ss, y1 * ss)
         self.k = (x1 - x0) * ss / WIDTH_M  # pixels per metre on the ground
@@ -48,7 +48,7 @@ class Canvas:
         return metres * config.STYLE * self.k
 
     def new(self) -> Image.Image:
-        return Image.new("L", (self.size, self.size), 0)
+        return Image.new("L", (self.width, self.height), 0)
 
     def polygon(self, draw: ImageDraw.ImageDraw, geom, fill=255):
         for p in _polys(geom):
@@ -110,7 +110,6 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     """Returns {"rgb": float32 HxWx3 in 0..1 at output size, plus named 1x masks}."""
     rng = np.random.default_rng(seed)
     cv = Canvas(layout, ss)
-    S = cv.size
     land = FRAME.difference(model.water) if model.water is not None else FRAME
 
     layers = {k: cv.new() for k in ("water", "yards", "houses", "walls", "parks", "fields", "ink")}
@@ -133,7 +132,7 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
         r = step * (i + 1) ** 1.35
         rings |= (dist > r) & (dist < r + lw * (1.3 - i * 0.08))
     open_water = dist > step * 10 ** 1.35
-    ruling = (np.arange(S)[:, None] % max(3, round(cv.m(18))) < lw * 0.8) & open_water
+    ruling = (np.arange(cv.height)[:, None] % max(3, round(cv.m(18))) < lw * 0.8) & open_water
     water_ink = ((rings | ruling) & (water > 127)).astype(np.uint8) * 200
 
     # --- open country: fields with furrows, woods, hedgerows ---
@@ -317,10 +316,10 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     _compass(cv, ImageDraw.Draw(layers["ink"]), round(0.95 * layout.dpi * ss), lw)
 
     # --- downsample masks and composite ---
-    out = layout.size
-    to1 = {k: np.asarray(v.resize((out, out), Image.LANCZOS), np.float32) / 255
+    out = (layout.width, layout.height)
+    to1 = {k: np.asarray(v.resize(out, Image.LANCZOS), np.float32) / 255
            for k, v in {**layers, "clip": clip}.items()}
-    rgb = _parchment((out, out), rng)
+    rgb = _parchment((layout.height, layout.width), rng)
     inside = to1["clip"][..., None]
     for key, col, strength in (("fields", config.FIELD_WASH, 0.55), ("parks", config.PARK_WASH, 0.6),
                                ("yards", config.BLOCK_WASH, config.YARD_WASH),

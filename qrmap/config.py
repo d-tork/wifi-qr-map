@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 import math
 import os
+import re
+import sys
 from pathlib import Path
 
 import yaml
@@ -15,29 +17,33 @@ MILE = 1609.344
 
 @dataclass(frozen=True)
 class Layout:
-    """Sheet layout in output pixels. 12 in x 12 in at `dpi`."""
+    """Sheet layout in output pixels: `width_in` x `height_in` at `dpi`. The design is 12 in
+    on its short side; a longer sheet gets more map along its long side."""
 
     dpi: int = 300
-    inches: float = 12.0
+    width_in: float = 12.0
+    height_in: float = 12.0
     # Border bands (inches): title on top, scale and attribution below.
     top: float = 1.10
     bottom: float = 0.78
     side: float = 0.94
 
     @property
-    def size(self) -> int:
-        return round(self.inches * self.dpi)
+    def width(self) -> int:
+        return round(self.width_in * self.dpi)
+
+    @property
+    def height(self) -> int:
+        return round(self.height_in * self.dpi)
 
     def px(self, inches: float) -> int:
         return round(inches * self.dpi)
 
     @property
     def map_box(self) -> tuple[int, int, int, int]:
-        """Square map area (x0, y0, x1, y1) inside the graduated border."""
-        s = self.size
-        x0, y0 = self.px(self.side), self.px(self.top)
-        side = min(s - 2 * x0, s - y0 - self.px(self.bottom))
-        return x0, y0, x0 + side, y0 + side
+        """Map area (x0, y0, x1, y1) inside the graduated border."""
+        return (self.px(self.side), self.px(self.top),
+                self.width - self.px(self.side), self.height - self.px(self.bottom))
 
 
 # --- Location, from config.yaml (or $QRMAP_CONFIG) ---------------------------------
@@ -60,11 +66,46 @@ def _load(path: Path) -> dict:
     return cfg
 
 
+def parse_size(v) -> tuple[float, float]:
+    """'16x20' (or [16, 20], or 12) -> (width, height) in inches."""
+    try:
+        parts = [float(x) for x in (v if isinstance(v, (list, tuple)) else re.split(r"[x×*, ]+", str(v).strip().lower()))]
+        w, h = (parts * 2)[:2] if len(parts) == 1 else parts
+        assert len(parts) <= 2 and w > 0 and h > 0
+    except (ValueError, AssertionError):
+        raise SystemExit(f"bad print size {v!r}: use WIDTHxHEIGHT in inches, e.g. 16x20")
+    return w, h
+
+
 def _latlon(v, default):
     return default if v is None else (float(v[0]), float(v[1]))
 
 
 CFG = _load(CONFIG_FILE)
+
+# Print size: the sheet the file is made for, with a blank border all round (for a canvas
+# wrap or a mat). The map fills the sheet inside the border, drawn at the design scale
+# for its short side (12 in) and scaled up with it, so a longer sheet shows more ground
+# along its long side. `--size` and `--border` on the command line (also `make fetch`)
+# override config.yaml; they are read here, as the map's extent fixes the OSM query.
+def _flag(name: str):
+    for i, arg in enumerate(sys.argv):
+        if arg == name and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if arg.startswith(name + "="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+_PRINT = CFG.get("print") or {}
+PRINT_SIZE = parse_size(_flag("--size") or _PRINT.get("size", "12x12"))
+PRINT_BORDER = float(_flag("--border") or _PRINT.get("border", 0))
+_ART_IN = (PRINT_SIZE[0] - 2 * PRINT_BORDER, PRINT_SIZE[1] - 2 * PRINT_BORDER)
+if min(_ART_IN) < 4:
+    raise SystemExit(f"{PRINT_SIZE[0]:g} x {PRINT_SIZE[1]:g} in with a {PRINT_BORDER:g} in border "
+                     f"leaves too little room for the map")
+SCALE = min(_ART_IN) / 12.0  # print inches per design inch
+DESIGN = Layout(width_in=_ART_IN[0] / SCALE, height_in=_ART_IN[1] / SCALE)  # the map's sheet, in design inches
 NAME = str(CFG.get("name") or "the Map")
 CENTER = _latlon(CFG["center"], None)
 
@@ -72,20 +113,22 @@ CENTER = _latlon(CFG["center"], None)
 # ward's houses are the same size as every other house on the map.
 MODULE_INCHES = 0.05  # printed module (and house plot) size; 0.05 in = 15 px at 300 dpi
 PLOT_METRES = 16.0  # ground frontage of one house plot
-_x0, _, _x1, _ = Layout().map_box
-RADIUS_MILES = (_x1 - _x0) / Layout().dpi / MODULE_INCHES * PLOT_METRES / 2 / MILE  # ~1 mile
+_mx0, _my0, _mx1, _my1 = DESIGN.map_box
+_MAP_IN = ((_mx1 - _mx0) / DESIGN.dpi, (_my1 - _my0) / DESIGN.dpi)  # the map, in design inches
+_HALF_W_M, _HALF_H_M = (v / MODULE_INCHES * PLOT_METRES / 2 for v in _MAP_IN)
+RADIUS_MILES = max(_HALF_W_M, _HALF_H_M) / MILE  # ~1 mile on a square sheet
 
-# The map is a square 2r on a side on the ground, so it is not stretched on a square sheet.
-_HALF_M = RADIUS_MILES * MILE
-_HALF_H_DEG = _HALF_M / 110_540
-_HALF_W_DEG = _HALF_M / (111_320 * math.cos(math.radians(CENTER[0])))
+# The map covers 2 x _HALF_W_M by 2 x _HALF_H_M on the ground, centred on CENTER.
+_HALF_H_DEG = _HALF_H_M / 110_540
+_HALF_W_DEG = _HALF_W_M / (111_320 * math.cos(math.radians(CENTER[0])))
 SOUTH, NORTH = CENTER[0] - _HALF_H_DEG, CENTER[0] + _HALF_H_DEG
 WEST, EAST = CENTER[1] - _HALF_W_DEG, CENTER[1] + _HALF_W_DEG
 BBOX = (SOUTH, WEST, NORTH, EAST)  # Overpass order
 
 # Stroke widths, symbol sizes and the like were tuned in metres for a 2-mile radius and
 # are scaled to print the same size at the fixed scale.
-STYLE = RADIUS_MILES / 2.0
+_ref = Layout().map_box
+STYLE = (_ref[2] - _ref[0]) / Layout().dpi / MODULE_INCHES * PLOT_METRES / 2 / MILE / 2.0  # ~0.5 on the 12 in design
 
 TITLE = CFG.get("title") or f"A  PLAN  of  {NAME.upper()}"
 SUBTITLE = CFG.get("subtitle") or ""

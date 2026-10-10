@@ -29,8 +29,8 @@ def _dms(v: float, pos: str, neg: str) -> str:
 
 
 def graduation() -> float:
-    """Border band width in degrees: at most 16 bands along each side."""
-    span = (config.NORTH - config.SOUTH) * 3600
+    """Border band width in degrees: at most 16 bands along the longer side."""
+    span = max(config.NORTH - config.SOUTH, config.EAST - config.WEST) * 3600
     return next((s for s in STEPS if span / s <= 16), STEPS[-1]) / 3600
 
 
@@ -89,7 +89,7 @@ def draw(img: Image.Image, layout: config.Layout, source: str):
         i += 1
 
     # Title.
-    cx = layout.size / 2
+    cx = layout.width / 2
     top = y0 - band - round(0.2 * dpi)
     title = font("roman", dpi * 0.30)
     sub = font("italic", dpi * 0.135)
