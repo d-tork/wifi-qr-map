@@ -11,10 +11,10 @@ import math
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from shapely.affinity import rotate
+from shapely.affinity import affine_transform, rotate
 from shapely.geometry import LineString, MultiPolygon, Polygon, box
 
-from . import config, ward
+from . import config, houses, ward
 from .geo import FRAME, WIDTH_M, GeoModel, proj
 
 FONT_FILES = {
@@ -113,7 +113,7 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     S = cv.size
     land = FRAME.difference(model.water) if model.water is not None else FRAME
 
-    layers = {k: cv.new() for k in ("water", "blocks", "parks", "fields", "ink")}
+    layers = {k: cv.new() for k in ("water", "yards", "houses", "walls", "parks", "fields", "ink")}
     d = {k: ImageDraw.Draw(v) for k, v in layers.items()}
     clip = cv.new()
     ImageDraw.Draw(clip).rectangle(cv.box, fill=255)
@@ -207,29 +207,56 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
                            cx + r1 * math.cos(a), cy + r1 * math.sin(a)],
                           fill=int(90 + 120 * heavy), width=max(1, round(lw * (0.6 + 0.7 * heavy))))
 
-    # --- blocks: carmine wash, diagonal hatching, ink outline ---
-    blocks = model.blocks()
-    for b in blocks:
-        cv.polygon(d["blocks"], b)
-        for p in _polys(b):  # shrinking a block off the kerb can split it in two
-            cv.line(d["ink"], p.exterior, lw * 1.3, 235)
-    bmask = _arr(layers["blocks"])
-    hatch = _hatch((S, S), max(4, cv.m(7.5)), lw, 45)
-    ink = np.maximum(_arr(layers["ink"]), np.minimum(bmask, hatch) * 0.8).astype(np.uint8)
-    layers["ink"] = Image.fromarray(ink)
-    d["ink"] = ImageDraw.Draw(layers["ink"])
+    # --- blocks: laid out in house plots one QR module wide (houses.py), yards between.
+    # Round the ward, the neighbouring blocks run up to a street circling its front
+    # gardens; the part of them inside the quiet zone is back yard, with no houses.
+    plot = (district.module if district is not None else config.MODULE_INCHES * layout.dpi) * ss
+    to_px = [cv.k, 0, 0, -cv.k, cv.box[0], cv.box[3]]
+    near_ward, back_yards = [], []
+    if district is not None:
+        s = config.WARD_GARDEN + config.WARD_RING
+        ring_street = Polygon(district.square(-s, -s, district.n + s, district.n + s, ss))
+        quiet = Polygon(district.reserve(ss))
+        no_houses = quiet.buffer(plot * 0.1)
+        reach = quiet.buffer(district.side * ss)
+    # Courts go in big blocks spread over the sheet, but not within a ward's width of the
+    # ward's quiet zone, so a close-up of the code never has one in frame.
+    courts, spread = [], (cv.box[2] - cv.box[0]) / 6
+    for b in model.blocks():
+        b = affine_transform(b, to_px)
+        if district is not None:
+            b = b.difference(ring_street)
+        for p in _polys(b):  # cutting a block back from the kerb can split it in two
+            if p.area < plot * plot * 0.5:
+                continue
+            ring = list(p.exterior.coords)
+            d["yards"].polygon(ring, fill=255)
+            for hole in p.interiors:
+                d["yards"].polygon(list(hole.coords), fill=0)
+            d["ink"].line(ring, fill=235, width=max(1, round(lw * 1.3)), joint="curve")
+            c = p.centroid
+            court = (len(courts) < config.COURTS and p.area > (9 * plot) ** 2
+                     and all(math.dist((c.x, c.y), q) > spread for q in courts)
+                     and (district is None or not p.intersects(reach)))
+            built, walls, is_court = houses.block_plots(p, plot, rng, court)
+            if is_court:
+                courts.append((c.x, c.y))
+            if district is not None and p.intersects(reach):
+                near_ward.append(p)
+                if p.intersects(quiet):
+                    built = [h for h in built if not Polygon(h).intersects(no_houses)]
+                    back_yards.append((p.intersection(quiet), p.boundary.intersection(quiet)))
+            houses.draw(layers, built, walls, lw)
 
     # --- roads: double-ruled, major roads wider ---
     roads = [(g.intersection(land), cls, name) for g, cls, name in model.roads]
     for g, cls, _ in roads:
-        w = cv.m(26 if cls == "major" else 16)
+        w = cv.m(26 if cls == "major" else 13)
         cv.line(d["ink"], g, w + lw * 2.6, 245)
     for g, cls, _ in roads:
-        w = cv.m(26 if cls == "major" else 16)
-        cv.line(d["ink"], g, w, 0)
-        cv.line(d["blocks"], g, w, 0)
-        cv.line(d["parks"], g, w, 0)
-        cv.line(d["fields"], g, w, 0)
+        w = cv.m(26 if cls == "major" else 13)
+        for k in ("ink", "yards", "houses", "parks", "fields"):
+            cv.line(d[k], g, w, 0)
 
     # --- railway: single rule with cross-ticks ---
     for r in model.rail:
@@ -262,14 +289,30 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     layers["ink"] = Image.fromarray(ink)
     d["ink"] = ImageDraw.Draw(layers["ink"])
 
-    occupied = []
+    occupied, refs = [], []
     if district is not None:
-        ward.draw_ward(cv, layers, district, code, rng, lw)
+        ward.draw_ward(cv, layers, district, code, rng, lw, _long_axis(near_ward, district))
+        for yard, edge in back_yards:
+            for p in _polys(yard):
+                d["yards"].polygon(list(p.exterior.coords), fill=255)
+            for ls in _lines(edge):
+                d["ink"].line(list(ls.coords), fill=235, width=max(1, round(lw * 1.3)), joint="curve")
         occupied.append(district.bbox(ss, extra=0.5))
     if legend:
+        # Lettered references to real buildings, kept off the ward and the cartouche.
+        avoid = list(occupied)
+        for _ in range(3):
+            refs = _references(model, cv, avoid)
+            legend = {**legend, "refs": [(chr(65 + i), n) for i, (_, _, n) in enumerate(refs)]}
+            cartouche = ward.legend_box(cv, legend, font)["box"]
+            if not any(_inside(cartouche, x, y, cv.m(40)) for x, y, _ in refs):
+                break
+            avoid.append(cartouche)
         ward.draw_legend(cv, layers, legend, lw, font, occupied)
+    houses.finish(cv, layers)
     d = {k: ImageDraw.Draw(v) for k, v in layers.items()}
     _landmarks(cv, d["ink"], model, lw, occupied)
+    _reference_letters(cv, layers["ink"], model, refs, occupied)
     _place_labels(cv, layers["ink"], model, roads, occupied, rng)
     _compass(cv, ImageDraw.Draw(layers["ink"]), round(0.95 * layout.dpi * ss), lw)
 
@@ -277,17 +320,33 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     out = layout.size
     to1 = {k: np.asarray(v.resize((out, out), Image.LANCZOS), np.float32) / 255
            for k, v in {**layers, "clip": clip}.items()}
-    to1.setdefault("ward", np.zeros((out, out), np.float32))
     rgb = _parchment((out, out), rng)
     inside = to1["clip"][..., None]
     for key, col, strength in (("fields", config.FIELD_WASH, 0.55), ("parks", config.PARK_WASH, 0.6),
-                               ("blocks", config.BLOCK_WASH, 0.8), ("ward", config.BLOCK_WASH, 0.9),
+                               ("yards", config.BLOCK_WASH, config.YARD_WASH),
+                               ("houses", config.BLOCK_WASH, 0.9),
                                ("water", config.WATER_WASH, 0.8)):
         a = (to1[key] * strength)[..., None] * inside
         rgb = rgb * (1 - a) + rgb * (np.array(col, np.float32) / 255) * a  # multiply wash
     ia = (np.clip(to1["ink"] * 1.05, 0, 1) * 0.94)[..., None] * inside
     rgb = rgb * (1 - ia) + (np.array(config.INK, np.float32) / 255) * ia
-    return {"rgb": np.clip(rgb, 0, 1), **{k: to1[k] for k in ("water", "blocks", "ward", "ink")}}
+    return {"rgb": np.clip(rgb, 0, 1), "courts": len(courts), "references": [n for _, _, n in refs], **{k: to1[k] for k in ("water", "houses", "ink")}}
+
+
+def _long_axis(blocks, district) -> str:
+    """Which way the blocks round the ward run, in the ward's frame ("u" or "v"),
+    weighting each block by its area."""
+    a = math.radians(district.angle)
+    u = (math.cos(a), -math.sin(a))  # the ward's row direction on the page
+    along_u = 0.0
+    for p in blocks:
+        pts = list(p.minimum_rotated_rectangle.exterior.coords)
+        if len(pts) < 5:
+            continue
+        (ax, ay), (bx, by) = max(zip(pts, pts[1:]), key=lambda e: math.dist(*e))
+        L = math.dist((ax, ay), (bx, by)) or 1
+        along_u += p.area * (abs((bx - ax) * u[0] + (by - ay) * u[1]) / L - 0.7071)
+    return "u" if along_u > 0 else "v"
 
 
 def _pt(x, y):
@@ -341,6 +400,54 @@ def _landmarks(cv: Canvas, draw, model: GeoModel, lw, occupied):
                            cx + r1 * math.cos(ar), cy - s * .8 + r1 * math.sin(ar)], fill=200, width=w)
 
 
+# Order of preference for named buildings (osm.POI_TAGS kinds); configured landmarks
+# come before all of them.
+REFERENCE_RANK = {"historic": 1, "civic": 1, "market": 2, "museum": 2, "church": 3, "station": 4}
+
+
+def _references(model: GeoModel, cv: Canvas, avoid: list) -> list:
+    """Up to REFERENCE_COUNT (x, y, name) in canvas pixels, read north to south and west
+    to east, so they letter A, B, C... in the order a reader scans the plan. From
+    config.yaml's `references:` list, or else real named buildings: landmarks and
+    historic or civic buildings first, then markets and museums, churches, stations,
+    spread out across the town."""
+    x0, y0, x1, y1 = cv.box
+    inset = (x1 - x0) * 0.04
+    if config.REFERENCES is not None:
+        picks = [(*cv.xy(*proj(la, lo)), t) for la, lo, t in config.REFERENCES]
+    else:
+        cands, seen = [], set()
+        for x, y, kind, name in [*model.landmarks, *model.pois]:
+            if not name or name in seen or len(name) > config.REFERENCE_MAX_CHARS or name.endswith("District"):
+                continue
+            seen.add(name)
+            cx, cy = cv.xy(x, y)
+            if not (x0 + inset < cx < x1 - inset and y0 + inset < cy < y1 - inset):
+                continue
+            if any(_inside(bb, cx, cy, cv.m(60)) for bb in avoid):
+                continue
+            pri = 0 if (x, y, kind, name) in model.landmarks else REFERENCE_RANK.get(kind, 5)
+            cands.append((pri, len(name), name, cx, cy))  # short names read more like a period table
+        picks, spread = [], (x1 - x0) / 7
+        for *_, name, cx, cy in sorted(cands):
+            if len(picks) < config.REFERENCE_COUNT and all(math.dist((cx, cy), p[:2]) > spread for p in picks):
+                picks.append((cx, cy, name))
+    return sorted(picks, key=lambda p: (round(p[1] / ((y1 - y0) / 6)), p[0]))
+
+
+def _reference_letters(cv: Canvas, ink_img, model, refs, occupied):
+    """A, B, C... engraved beside each referenced building (beside its symbol, if the
+    building is also a drawn landmark)."""
+    fnt = font("caps", cv.layout.dpi * cv.ss * 0.115 * 1.35)
+    s = cv.m(22)  # landmark symbol size (see _landmarks)
+    marks = [cv.xy(x, y) for x, y, _, _ in model.landmarks]
+    for i, (cx, cy, _) in enumerate(refs):
+        near = [m for m in marks if math.dist((cx, cy), m) < s * 3]
+        if near:  # letter to the right of the symbol, clear of its halo
+            cx, cy = near[0][0] + s * 1.2 + fnt.size * 0.6, near[0][1]
+        _stamp(ink_img, _text_img(chr(65 + i), fnt, 0), cx, cy, 0, occupied, force=True)
+
+
 def _text_img(text, fnt, tracking_px):
     widths = [fnt.getlength(ch) for ch in text]
     total = sum(widths) + tracking_px * max(0, len(text) - 1)
@@ -363,8 +470,11 @@ def _stamp(canvas_img: Image.Image, txt: Image.Image, cx, cy, angle, occupied, f
             if bb[0] < o[2] and bb[2] > o[0] and bb[1] < o[3] and bb[3] > o[1]:
                 return False
     occupied.append(bb)
-    region = canvas_img.crop(bb)
-    canvas_img.paste(Image.fromarray(np.maximum(_arr(region), _arr(rot))), bb[:2])
+    # Knock the hatching back round the letters so names stay legible over houses.
+    r = max(3, round(rot.height * 0.06)) | 1
+    halo = cv2.GaussianBlur(cv2.dilate(_arr(rot), np.ones((r, r), np.uint8)), (r, r), 0) / 255
+    region = _arr(canvas_img.crop(bb)) * (1 - halo * 0.85)
+    canvas_img.paste(Image.fromarray(np.maximum(region, _arr(rot)).astype(np.uint8)), bb[:2])
     return True
 
 
@@ -384,7 +494,7 @@ def _place_labels(cv: Canvas, ink_img, model, roads, occupied, rng):
     seen = set()
     by_name = {}
     for g, cls, name in roads:
-        if name:
+        if name and _lines(g):  # roads wholly off the sheet have no lines left
             by_name.setdefault(name, []).extend((ls, cls) for ls in _lines(g))
     order = sorted(by_name.items(), key=lambda kv: -max(ls.length for ls, _ in kv[1]))
     for name, parts in order:

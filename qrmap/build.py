@@ -56,16 +56,13 @@ def _bits(a: np.ndarray) -> list[str]:
     return ["".join("1" if v else "0" for v in row) for row in a]
 
 
-def legend_rows(a, ssid, password, env) -> list[tuple[str, str]]:
-    """The two fallback entries for people whose phones won't scan."""
-    net_label = a.legend_network_label or env.get("WIFI_LEGEND_NETWORK_LABEL") or config.LEGEND_NETWORK_LABEL
-    pw_label = a.legend_password_label or env.get("WIFI_LEGEND_PASSWORD_LABEL") or config.LEGEND_PASSWORD_LABEL
+def legend_entries(a, ssid, password, env) -> tuple[str, str | None]:
+    """The fallback text for phones that won't scan: the network name (printed beside
+    the Wi-Fi mark) and the password (printed alone at the foot of the legend, with
+    no label, so it doesn't announce itself), or None to leave the password off."""
     net = a.legend_network_text or env.get("WIFI_LEGEND_NETWORK_TEXT") or ssid
-    pw = a.legend_password_text or env.get("WIFI_LEGEND_PASSWORD_TEXT") or password or "none required"
-    rows = [(net_label, net)]
-    if not a.no_legend_password:
-        rows.append((pw_label, pw))
-    return rows
+    pw = a.legend_password_text or env.get("WIFI_LEGEND_PASSWORD_TEXT") or password
+    return net, None if a.no_legend_password else pw
 
 
 def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.District):
@@ -103,16 +100,17 @@ def build(a) -> Path:
 
     code = qr.make(payload, version=a.version, error=a.ecc, score=qr.blockiness)
     center = tuple(float(v) for v in a.center.split(",")) if a.center else None
-    dist = district.place(layout, code.n, center=center, angle=a.angle, module_in=a.module_in)
     model = osm.load()
+    dist = district.place(layout, code.n, center=center, angle=a.angle, module_in=a.module_in, model=model)
     print(f"map data: {model.source}")
     print(f"QR version {code.version}-{code.error}, mask {code.mask}: {code.n} modules of "
           f"{dist.module}px ({dist.module / layout.dpi:.3f} in); ward {dist.side / layout.dpi:.2f} in "
           f"+ {dist.quiet}-module quiet zone, turned {dist.angle:g} deg")
 
-    legend = None if a.no_legend else {"title": config.LEGEND_TITLE,
-                                       "rows": legend_rows(a, ssid, password, env)}
+    net, pw = legend_entries(a, ssid, password, env)
+    legend = None if a.no_legend else {"title": config.LEGEND_TITLE, "network": net, "password": pw}
     art = render_map.render(model, layout, ss=a.ss, district=dist, code=code, legend=legend)
+    print(f"{art['courts']} court(s) elsewhere in town echo the finder patterns")
     final, fixed = guard.guard(art["rgb"], code, dist)
     print(f"guard pass corrected {fixed} module centre(s)")
     img = Image.fromarray((final * 255).round().astype(np.uint8))
@@ -131,8 +129,8 @@ def build(a) -> Path:
         "dpi": layout.dpi, "inches": layout.inches, "version": code.version, "error": code.error,
         "mask": code.mask, "payload_sha256": code.payload_sha256, "ssid": ssid, "security": security,
         "district": dist.to_dict(), "module_inches": dist.module / layout.dpi, "map_source": model.source,
-        "legend_labels": [lb for lb, _ in legend["rows"]] if legend else [],
-        "legend_shows_password": bool(legend) and len(legend["rows"]) > 1,
+        "legend_shows_password": bool(legend) and legend["password"] is not None,
+        "legend_references": art["references"],
         "guard_corrections": fixed,
         "matrix": _bits(code.dark), "function": _bits(code.function),
     }
@@ -150,14 +148,14 @@ def main(argv=None):
     ap.add_argument("--version", type=int, help="force a larger QR version (more, smaller blocks)")
     ap.add_argument("--ecc", default=config.ECC, choices=list("lmqh"), help="error correction level")
     ap.add_argument("--center", help="ward centre as LAT,LON (default: ward.center in config.yaml)")
-    ap.add_argument("--angle", type=float, help="ward rotation in degrees (default: ward.angle in config.yaml)")
-    ap.add_argument("--module-in", type=float, help=f"module size in inches (default {config.MODULE_INCHES})")
+    ap.add_argument("--angle", type=float, help="ward rotation in degrees (default: ward.angle in config.yaml, "
+                    "or the nearest major street's direction)")
+    ap.add_argument("--module-in", type=float, help=f"module and house-plot size in inches (default {config.MODULE_INCHES}); "
+                    "the map's scale stays fixed")
     lg = ap.add_argument_group("legend (fallback text for devices that can't scan)")
-    lg.add_argument("--legend-network-label", help=f"default {config.LEGEND_NETWORK_LABEL!r}")
-    lg.add_argument("--legend-password-label", help=f"default {config.LEGEND_PASSWORD_LABEL!r}")
     lg.add_argument("--legend-network-text", help="default: the SSID")
     lg.add_argument("--legend-password-text", help="default: the password (e.g. set a hint instead)")
-    lg.add_argument("--no-legend-password", action="store_true", help="omit the password row")
+    lg.add_argument("--no-legend-password", action="store_true", help="omit the password line")
     lg.add_argument("--no-legend", action="store_true")
     ap.add_argument("--dpi", type=int, default=300)
     ap.add_argument("--ss", type=int, default=2, help="supersampling for line art")

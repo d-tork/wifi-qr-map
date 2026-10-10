@@ -23,10 +23,21 @@ from .geo import FRAME, MX as _MX, MY as _MY, GeoModel, Label, proj
 ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
 MAJOR = {"motorway", "trunk", "primary", "secondary", "motorway_link", "trunk_link",
          "primary_link", "secondary_link"}
 MINOR = {"tertiary", "tertiary_link", "unclassified", "residential", "living_street"}
+# Named buildings a period plan would list in its table of references, as
+# (key, value regex, kind). Kinds are ranked in REFERENCE_KINDS.
+POI_TAGS = [
+    ("historic", "^(building|church|monument|memorial|fort|house|manor|tavern)$", "historic"),
+    ("amenity", "^(townhall|courthouse)$", "civic"),
+    ("amenity", "^(place_of_worship)$", "church"),
+    ("amenity", "^(marketplace)$", "market"),
+    ("tourism", "^(museum)$", "museum"),
+    ("railway", "^(station)$", "station"),
+]
 PLACES = {  # place=* -> (label size, style), most important first
     "city": (2.3, "caps"), "town": (1.8, "caps"), "suburb": (1.35, "caps"),
     "village": (1.35, "caps"), "quarter": (1.1, "caps"), "neighbourhood": (1.0, "italic"),
@@ -42,6 +53,7 @@ def query() -> str:
     b = ",".join(f"{v:.5f}" for v in config.BBOX)
     hw = "|".join(sorted(MAJOR | (MINOR if config.MINOR_ROADS else set())))
     landmarks = "".join(f'\n  nwr["name"="{_ql(n)}"]({b});' for n in config.LANDMARKS)
+    pois = "".join(f'\n  {t}["{k}"~"{v}"]["name"]({b});' for k, v, _ in POI_TAGS for t in ("node", "way"))
     return f"""[out:json][timeout:{240 if config.RADIUS_MILES <= 5 else 600}];
 (
   way["highway"~"^({hw})$"]({b});
@@ -56,7 +68,7 @@ def query() -> str:
   way["leisure"~"^(park|nature_reserve|golf_course)$"]({b});
   relation["leisure"~"^(park|nature_reserve)$"]({b});
   way["natural"="wood"]({b});
-  way["landuse"~"^(forest|cemetery)$"]({b});{landmarks}
+  way["landuse"~"^(forest|cemetery)$"]({b});{landmarks}{pois}
 );
 out geom;"""
 
@@ -186,6 +198,13 @@ def build(path: Path | None = None) -> GeoModel:
         if el["type"] == "node" and t.get("place") in PLACES and name:
             places.append((t["place"], name, el["lat"], el["lon"]))
             continue
+        kind = next((kd for k, v, kd in POI_TAGS if name and re.match(v, t.get(k, ""))), None)
+        if kind is not None:
+            pt = (el["lat"], el["lon"]) if "lat" in el else None
+            ls = None if pt else _ls(el.get("geometry"))
+            if pt or ls is not None:
+                xy = proj(*pt) if pt else ls.centroid.coords[0]
+                m.pois.append((xy[0], xy[1], kind, name))
         if name in config.LANDMARKS and name not in landmarks:
             c = el.get("center") or (el if "lat" in el else None)
             if c is None and el.get("geometry"):

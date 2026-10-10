@@ -12,6 +12,7 @@ from segno.helpers import make_wifi_data
 
 DATA_TYPES = {C.TYPE_DATA_DARK, C.TYPE_DATA_LIGHT}
 FINDER_TYPES = {C.TYPE_FINDER_PATTERN_DARK, C.TYPE_FINDER_PATTERN_LIGHT, C.TYPE_SEPARATOR}
+ALIGNMENT_TYPES = {C.TYPE_ALIGNMENT_PATTERN_DARK, C.TYPE_ALIGNMENT_PATTERN_LIGHT}
 
 
 @dataclass
@@ -23,6 +24,7 @@ class Code:
     dark: np.ndarray  # bool [n, n], True = dark module (no quiet zone)
     function: np.ndarray  # bool [n, n], finder/separator/timing/alignment/format/version
     finder: np.ndarray  # bool [n, n], finder patterns + separators
+    alignment: np.ndarray  # bool [n, n], alignment patterns
     agreement: float  # mask-selection score (see make)
 
     @property
@@ -55,7 +57,8 @@ def _matrices(q):
     dark = np.array([list(r) for r in q.matrix], dtype=np.uint8).astype(bool)
     function = ~np.isin(types, list(DATA_TYPES))
     finder = np.isin(types, list(FINDER_TYPES))
-    return dark, function, finder
+    alignment = np.isin(types, list(ALIGNMENT_TYPES))
+    return dark, function, finder, alignment
 
 
 def blockiness(dark: np.ndarray, function: np.ndarray) -> float:
@@ -74,8 +77,8 @@ def make(payload: str, version: int | None = None, error: str = "q", score=None)
     best = None
     for mask in (range(8) if score else [base.mask]):
         q = segno.make_qr(payload, error=error, version=base.version, mask=mask, boost_error=False)
-        dark, function, finder = _matrices(q)
+        dark, function, finder, alignment = _matrices(q)
         sc = score(dark, function) if score else 0.0
         if best is None or sc > best.agreement:
-            best = Code(payload, base.version, base.error, mask, dark, function, finder, sc)
+            best = Code(payload, base.version, base.error, mask, dark, function, finder, alignment, sc)
     return best

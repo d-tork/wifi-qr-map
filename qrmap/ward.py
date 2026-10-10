@@ -1,109 +1,93 @@
-"""The hidden QR as a ward of the town, plus the legend cartouche and Wi-Fi mark.
+"""The hidden QR as a few blocks of houses, plus the legend cartouche and Wi-Fi mark.
 
-The ward is drawn into the same supersampled layers as the rest of the map, so it
-gets the same parchment, washes and ink, and reads as one more neighbourhood:
-  - dark modules -> built blocks: carmine wash, hatched, ink-outlined, with narrow
-    streets between most neighbours (some merge into larger blocks)
-  - light modules -> open lots, outlined faintly
-  - finder patterns -> walled squares with bastions at their outer corners
-  - quiet zone -> more open lots, where the real streets stop
+The ward is laid out like the rest of the town (see houses.py), on the same plot size:
+  - dark modules -> houses, light modules -> empty plots (yards)
+  - narrow streets run along module edges every few modules, cutting the symbol into
+    blocks about the size of Old Town's, never through a finder or alignment pattern
+  - finder patterns -> courtyard blocks: a ring of terraced houses round a court,
+    with a hall in the middle; alignment patterns are smaller courts of the same kind
+  - quiet zone -> front gardens and a wide street round the ward, where the real
+    streets stop and the neighbouring blocks turn their houses to face it
+Streets and walls lie on module edges, so every module centre keeps its value.
 """
 
 from __future__ import annotations
 
-import math
+from PIL import ImageDraw
 
-import cv2
-import numpy as np
-from PIL import Image, ImageDraw
-
-from . import config
+from . import config, houses
 from .district import District
 from .qr import Code
 
 
-def _hatch(h, w, period, ink, angle):
-    """Anti-aliased parallel rules covering `ink` of each period."""
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    r = math.radians(angle)
-    d = (xx * math.cos(r) + yy * math.sin(r)) % period
-    return np.clip(ink * period / 2 - np.abs(d - period / 2) + 0.5, 0, 1)
+def street_cuts(n: int, alignment, spacing: float) -> list[int]:
+    """Module edges (between module p-1 and p) where the ward's streets run, along one
+    axis. The outermost run beside the finder patterns and separators, at 8 and n - 8;
+    the rest split the span between into blocks of about `spacing` modules, nudged so
+    no street splits an alignment pattern (rows of `alignment` are along the street)."""
+    lo, hi = 8, n - 8
+    if hi <= lo:
+        return []
+    k = max(1, round((hi - lo) / spacing))
+    cuts = []
+    for i in range(k + 1):
+        p = lo + round(i * (hi - lo) / k)
+        for q in (p, p - 1, p + 1, p - 2, p + 2, p - 3, p + 3):
+            if lo <= q <= hi and q not in cuts and not (alignment[:, q - 1] & alignment[:, q]).any():
+                cuts.append(q)
+                break
+    return sorted(cuts)
 
 
-def draw_ward(cv, layers: dict, dist: District, code: Code, rng, lw: float):
+def draw_ward(cv, layers: dict, dist: District, code: Code, rng, lw: float, long_axis: str = "v"):
+    """`long_axis` is the way the town's blocks run nearby, in the ward's own frame:
+    "u" along its rows, "v" along its columns. The ward's blocks run the same way."""
     ss = cv.ss
     reserve = dist.reserve(ss)
     for img in layers.values():
         ImageDraw.Draw(img).polygon(reserve, fill=0)
 
-    ward = Image.new("L", layers["ink"].size, 0)
-    wd = ImageDraw.Draw(ward)
     n = code.n
+    across, along = config.WARD_BLOCK
+    cols = street_cuts(n, code.alignment, along if long_axis == "u" else across)  # vertical streets
+    rows = street_cuts(n, code.alignment.T, across if long_axis == "u" else along)  # horizontal streets
+    half = config.WARD_STREET / 2
+    g = config.WARD_GARDEN
+
+    # Blocks: yards between the streets, with front gardens spilling into the quiet zone
+    # on the outside, outlined in ink like every other block.
+    yards = ImageDraw.Draw(layers["yards"])
+    ink = ImageDraw.Draw(layers["ink"])
+    us, vs = [0, *cols, n], [0, *rows, n]
+    for ua, ub in zip(us, us[1:]):
+        for va, vb in zip(vs, vs[1:]):
+            u0, u1 = ua + (half if ua else -g), ub - (half if ub < n else -g)
+            v0, v1 = va + (half if va else -g), vb - (half if vb < n else -g)
+            sq = dist.square(u0, v0, u1, v1, ss)
+            yards.polygon(sq, fill=255)
+            ink.line([*sq, sq[0]], fill=235, width=max(1, round(lw * 1.3)), joint="curve")
+
+    # Houses on the dark modules, set back from the ward's streets.
+    pattern = code.finder | code.alignment
+    cu, cr = set(cols), set(rows)
+    built, walls = [], []
     for r in range(n):
         for c in range(n):
-            if code.dark[r, c]:
-                wd.polygon(dist.square(c, r, c + 1, r + 1, ss), fill=255)
-
-    # Streets: the ward is laid out as a grid of small blocks like Old Town's. Built
-    # (dark) blocks are separated by a narrow street unless merged into one larger
-    # block; finder patterns stay solid. Streets run along module edges, never through
-    # a module centre, so every centre keeps its value.
-    street = max(1, round(dist.module * ss * config.STREET_FRACTION))
-    lots = ImageDraw.Draw(layers["ink"])
-    lot_w = max(1, round(ss * 0.8))
-    q = dist.quiet
-
-    def dark(r, c):
-        return 0 <= r < n and 0 <= c < n and bool(code.dark[r, c])
-
-    def near_finder(r, c):  # finder + separator, plus one module of margin
-        lo, hi = -q, 8
-        return ((lo <= r <= hi and lo <= c <= hi) or (lo <= r <= hi and n - 9 <= c < n + q)
-                or (n - 9 <= r < n + q and lo <= c <= hi))
-
-    for r in range(-q, n + q):
-        for c in range(-q, n + q):
-            for dr, dc in ((0, 1), (1, 0)):
-                r2, c2 = r + dr, c + dc
-                if r2 >= n + q or c2 >= n + q:
-                    continue
-                edge = ([dist.to_px(c2, r, ss), dist.to_px(c2, r + 1, ss)] if dc else
-                        [dist.to_px(c, r2, ss), dist.to_px(c + 1, r2, ss)])
-                a, b = dark(r, c), dark(r2, c2)
-                if a and b:
-                    if code.function[r, c] or code.function[r2, c2]:
-                        continue
-                    if rng.random() < config.STREET_CHANCE:
-                        wd.line(edge, fill=0, width=street)
-                elif not a and not b and not (near_finder(r, c) or near_finder(r2, c2)):
-                    # Open lots, continuing into the quiet zone so the ward has no hard edge.
-                    lots.line(edge, fill=config.LOT_INK, width=lot_w)
-
-    # Bastions on the three outward corners of each finder ("walled squares").
-    mid = dist.to_px(n / 2, n / 2, ss)
-    for r0, c0 in ((0, 0), (0, n - 7), (n - 7, 0)):
-        for u, v in ((c0, r0), (c0 + 7, r0), (c0, r0 + 7), (c0 + 7, r0 + 7)):
-            du = -1 if u == c0 else 1
-            dv = -1 if v == r0 else 1
-            corner = dist.to_px(u, v, ss)
-            if math.dist(dist.to_px(u + du, v + dv, ss), mid) < math.dist(corner, mid):
-                continue  # the corner facing the symbol would cut into a separator module
-            kite = [(u - du * .6, v - dv * .6), (u - du * .6, v), (u + du * .55, v + dv * .55), (u, v - dv * .6)]
-            wd.polygon([dist.to_px(a, b, ss) for a, b in kite], fill=255)
-
-    x0, y0, x1, y1 = (int(v) for v in dist.bbox(ss))
-    x0, y0 = max(0, x0), max(0, y0)
-    w = np.asarray(ward, np.float32)[y0:y1, x0:x1] / 255
-    pitch = cv.layout.dpi * ss * config.HATCH_PITCH
-    hatch = _hatch(w.shape[0], w.shape[1], pitch, config.HATCH_INK, 45 - dist.angle)
-    k = np.ones((max(2, round(ss * 1.5)),) * 2, np.uint8)
-    edge = (w - cv2.erode(w, k)).clip(0, 1)
-    ink = np.asarray(layers["ink"], np.float32)
-    region = ink[y0:y1, x0:x1]
-    ink[y0:y1, x0:x1] = np.maximum(region, 255 * np.maximum(w * hatch, edge))
-    layers["ink"] = Image.fromarray(ink.astype(np.uint8))
-
-    layers["ward"] = ward
+            if not code.dark[r, c]:
+                continue
+            u0, u1 = c + (half if c in cu else 0), c + 1 - (half if c + 1 in cu else 0)
+            v0, v1 = r + (half if r in cr else 0), r + 1 - (half if r + 1 in cr else 0)
+            built.append(dist.square(u0, v0, u1, v1, ss))
+            # Party walls between some neighbours; courts and halls stay one building.
+            if pattern[r, c]:
+                continue
+            if c + 1 < n and code.dark[r, c + 1] and not pattern[r, c + 1] and c + 1 not in cu \
+                    and rng.random() < config.PARTY_WALL_CHANCE:
+                walls.append([dist.to_px(c + 1, v0, ss), dist.to_px(c + 1, v1, ss)])
+            if r + 1 < n and code.dark[r + 1, c] and not pattern[r + 1, c] and r + 1 not in cr \
+                    and rng.random() < config.PARTY_WALL_CHANCE:
+                walls.append([dist.to_px(u0, r + 1, ss), dist.to_px(u1, r + 1, ss)])
+    houses.draw(layers, built, walls, lw)
 
 
 def wifi_mark(draw, cx, cy, s, fill=255, width=2):
@@ -114,36 +98,44 @@ def wifi_mark(draw, cx, cy, s, fill=255, width=2):
         draw.arc([cx - rad, cy - rad, cx + rad, cy + rad], 222, 318, fill=fill, width=width)
 
 
-def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list):
-    """A ruled cartouche: title, then 'label ...... value' rows."""
+def legend_box(cv, legend: dict, font) -> dict:
+    """Fonts, metrics and the box (supersampled pixels) of the cartouche: title, then
+    'label ...... value' rows (the lettered references, then the network name keyed by
+    the Wi-Fi mark alone), then the password by itself on the last line, unlabelled."""
     from .geo import proj
 
     ss, dpi = cv.ss, cv.layout.dpi
     base = dpi * ss * config.LEGEND_TEXT_INCHES
-    f_title = font("caps", base * 1.05)
-    f_label = font("italic", base)
-    f_value = font("caslon", base * 0.95)
-    rows = legend["rows"]
-    pad = base * 0.9
-    leader = base * 1.6
-    icon = base * 1.1
-    lab_w = max(f_label.getlength(lb) for lb, _ in rows) + icon * 1.4
-    val_w = max(f_value.getlength(v) for _, v in rows)
-    title_w = f_title.getlength(" ".join(legend["title"]))
-    inner_w = max(lab_w + leader + val_w, title_w)
-    line_h = base * 1.55
-    W = inner_w + 2 * pad
-    H = pad * 2 + line_h * (len(rows) + 1.2)
+    L = {"base": base, "f_title": font("caps", base * 1.05), "f_label": font("italic", base),
+         "f_value": font("caslon", base * 0.95), "pad": base * 0.9, "icon": base * 1.1,
+         "line_h": base * 1.55, "rows": [*legend.get("refs", []), ("", legend["network"])],
+         "icon_row": len(legend.get("refs", [])), "password": legend.get("password")}
+    rows = L["rows"]
+    lab_w = max([L["f_label"].getlength(lb) for lb, _ in rows] + [L["icon"]])
+    val_w = max(L["f_value"].getlength(v) for _, v in rows)
+    pw_w = L["f_value"].getlength(L["password"]) if L["password"] else 0
+    L["title_w"] = L["f_title"].getlength(" ".join(legend["title"]))
+    W = max(lab_w + base * 1.6 + val_w, L["title_w"], pw_w) + 2 * L["pad"]
+    H = L["pad"] * 2 + L["line_h"] * (len(rows) + 1.2 + (1.15 if L["password"] else 0))
 
     cx, cy = cv.xy(*proj(*legend.get("center", config.LEGEND_CENTER)))
     bx0, by0, bx1, by1 = cv.box
-    m = base
-    cx = min(max(cx, bx0 + W / 2 + m), bx1 - W / 2 - m)
-    cy = min(max(cy, by0 + H / 2 + m), by1 - H / 2 - m)
-    x0, y0, x1, y1 = cx - W / 2, cy - H / 2, cx + W / 2, cy + H / 2
+    cx = min(max(cx, bx0 + W / 2 + base), bx1 - W / 2 - base)
+    cy = min(max(cy, by0 + H / 2 + base), by1 - H / 2 - base)
+    L["box"] = (cx - W / 2, cy - H / 2, cx + W / 2, cy + H / 2)
+    return L
+
+
+def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list):
+    """A ruled cartouche, as on an engraved plan's table of references."""
+    L = legend_box(cv, legend, font)
+    base, pad, icon = L["base"], L["pad"], L["icon"]
+    f_label, f_value = L["f_label"], L["f_value"]
+    x0, y0, x1, y1 = L["box"]
+    cx = (x0 + x1) / 2
     for img in layers.values():
         ImageDraw.Draw(img).rectangle([x0, y0, x1, y1], fill=0)
-    occupied.append((x0, y0, x1, y1))
+    occupied.append(L["box"])
 
     d = ImageDraw.Draw(layers["ink"])
     w = max(1, round(lw))
@@ -152,23 +144,31 @@ def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list)
     d.rectangle([x0 + g, y0 + g, x1 - g, y1 - g], outline=200, width=w)
 
     ty = y0 + pad + base * 0.55
-    d.text((cx, ty), " ".join(legend["title"]), font=f_title, fill=245, anchor="mm")
+    title_w = L["title_w"]
+    d.text((cx, ty), " ".join(legend["title"]), font=L["f_title"], fill=245, anchor="mm")
     d.line([cx - title_w * 0.35, ty + base * 0.75, cx + title_w * 0.35, ty + base * 0.75], fill=170, width=w)
 
-    for i, (label, value) in enumerate(rows):
-        y = ty + line_h * (i + 1.15)
+    for i, (label, value) in enumerate(L["rows"]):
+        y = ty + L["line_h"] * (i + 1.15)
         lx = x0 + pad
-        if i == 0:
+        if i == L["icon_row"]:  # the Wi-Fi mark stands where a reference letter would
             wifi_mark(d, lx + icon * 0.45, y + base * 0.22, icon * 0.5, fill=225, width=w + 1)
-        lx += icon * 1.4
-        d.text((lx, y), label, font=f_label, fill=240, anchor="lm")
+            key_w = icon * 0.9
+        else:
+            d.text((lx, y), label, font=f_label, fill=240, anchor="lm")
+            key_w = f_label.getlength(label)
         vx = x1 - pad - f_value.getlength(value)
         d.text((x1 - pad, y), value, font=f_value, fill=250, anchor="rm")
-        # Dotted leader between label and value, as in an engraved table of references.
-        sx = lx + f_label.getlength(label) + base * 0.4
+        # Dotted leader between key and value, as in an engraved table of references.
+        sx = lx + key_w + base * 0.4
         ex = vx - base * 0.4
         step = base * 0.32
         t = sx
         while t < ex:
             d.ellipse([t - w, y + base * 0.12 - w, t + w, y + base * 0.12 + w], fill=150)
             t += step
+    if L["password"]:  # alone, centred, under a short rule
+        y = ty + L["line_h"] * (len(L["rows"]) + 1.3)
+        d.line([cx - title_w * 0.2, y - L["line_h"] * 0.55, cx + title_w * 0.2, y - L["line_h"] * 0.55],
+               fill=150, width=w)
+        d.text((cx, y), L["password"], font=f_value, fill=250, anchor="mm")

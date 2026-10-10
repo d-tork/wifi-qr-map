@@ -12,6 +12,7 @@ import math
 
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import polygonize, unary_union
+from shapely.strtree import STRtree
 
 from . import config
 
@@ -57,20 +58,34 @@ class GeoModel:
     fields: list = field(default_factory=list)  # Polygon (open country, drawn as farmland)
     hills: list = field(default_factory=list)  # (x, y, radius_m)
     landmarks: list = field(default_factory=list)  # (x, y, kind, name)
+    pois: list = field(default_factory=list)  # (x, y, kind, name): named buildings for references
     labels: list = field(default_factory=list)  # Label
 
     def blocks(self, min_area=1_500, max_area=160_000):
-        """City blocks: faces of the street network, minus water, shrunk off the kerb."""
+        """City blocks: faces of the street network, less water and parks, cut back from
+        every road by its drawn half-width and ink casing, so houses never sit under a
+        road (including dead ends and cul-de-sacs inside a face)."""
         min_area *= config.STYLE ** 2  # too small to print; max_area is a real-world size
         lines = [g for g, cls, _ in self.roads if cls != "path"] + list(self.rail)
         lines.append(FRAME.exterior)
         faces = polygonize(unary_union(lines))
         land = FRAME.difference(self.water) if self.water is not None else FRAME
+        if self.parks:
+            land = land.difference(unary_union(self.parks))
+        # Half the drawn width (render_map: 26 / 13 m at the reference scale) plus casing.
+        kerbs = [g.buffer((17 if cls == "major" else 10.5) * config.STYLE, cap_style=2)
+                 for g, cls, _ in self.roads if cls != "path"]
+        kerbs += [r.buffer(12 * config.STYLE, cap_style=2) for r in self.rail]
+        tree = STRtree(kerbs)
         out = []
         for f in faces:
             if not (min_area <= f.area <= max_area):
                 continue
-            f = f.intersection(land).buffer(-9 * config.STYLE, join_style=2)
+            near = tree.query(f)
+            f = f.intersection(land)
+            if len(near):
+                f = f.difference(unary_union([kerbs[i] for i in near]))
+            f = f.buffer(0)
             if f.is_empty or f.area < min_area * 0.4:
                 continue
             out.append(f)
