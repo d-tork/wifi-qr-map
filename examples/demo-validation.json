@@ -1,0 +1,166 @@
+{
+  "image": "build/wifi-map-12in.png",
+  "ok": true,
+  "print": {
+    "pixels": [
+      3600,
+      3600
+    ],
+    "dpi": [
+      299.9994,
+      299.9994
+    ],
+    "inches": [
+      12.0,
+      12.0
+    ],
+    "ok": true,
+    "pdf_inches": [
+      12.0,
+      12.0
+    ]
+  },
+  "modules": {
+    "modules": 1681,
+    "core_errors": 0,
+    "core_errors_in_function_patterns": 0,
+    "core_contrast_margin": 101.6,
+    "core_mean_dark": 83.3,
+    "core_mean_light": 221.3,
+    "defocus_module_errors_pct": 0.06,
+    "ok": true
+  },
+  "decode": {
+    "decoders": [
+      "zxing-cpp",
+      "opencv",
+      "opencv-aruco",
+      "opencv-wechat"
+    ],
+    "captures": [
+      {
+        "capture": "clean full-res",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "clean 1600px",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "clean 1000px",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "clean 640px",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": true,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "rotated 17deg",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": true,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "perspective 6%",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "perspective 10%",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "blur sigma 1.5",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": true,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "blur sigma 2.5 @1400px",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": true,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "sensor noise",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "jpeg q35",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "glare",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "low light",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "small 480px",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": true,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      },
+      {
+        "capture": "combo: persp+blur+noise+jpeg",
+        "zxing-cpp": true,
+        "text": "WIFI:T:WPA;S:Alexandria Guest;P:********;;",
+        "opencv": false,
+        "opencv-aruco": false,
+        "opencv-wechat": true
+      }
+    ],
+    "clean_ok": true,
+    "zxing_stress_pass_rate": 1.0,
+    "ok": true
+  }
+}
