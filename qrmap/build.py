@@ -67,7 +67,7 @@ def legend_entries(a, ssid, password, env) -> tuple[str, str | None]:
 
 
 def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.District,
-         sheet: tuple[int, int], art_box: tuple[int, int], art_size: tuple[int, int], inches: tuple[float, float]):
+         sheet: tuple[int, int], art_box: tuple[int, int], art_size: tuple[int, int], inches: tuple[float, float], png_name: str):
     """Inkscape master: the whole sheet, plus the vector QR reference as layers (drawn in
     map pixels, so they sit in a group moved and scaled onto the map)."""
     (w, h), (ax, ay) = sheet, art_box
@@ -83,7 +83,7 @@ def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.Distric
      xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
      width="{inches[0]:g}in" height="{inches[1]:g}in" viewBox="0 0 {w} {h}">
   <g {lay} inkscape:label="Final artwork" sodipodi:insensitive="true">
-    <image xlink:href="wifi-map.png" width="{w}" height="{h}"/></g>
+    <image xlink:href="{png_name}" width="{w}" height="{h}"/></g>
   <g {lay} inkscape:label="QR reference (dark modules)" style="display:none;opacity:0.5" {place}>
     <path d="{dark}" fill="#d00"/></g>
   <g {lay} inkscape:label="Quiet zone (keep light)" style="display:none" {place}>
@@ -137,12 +137,12 @@ def build(a) -> Path:
     print(f"sheet {sheet_w:g} x {sheet_h:g} in, map {art_w / a.dpi:.2f} x {art_h / a.dpi:.2f} in, "
           f"{border:g} in border ({img.width} x {img.height} px); map covers "
           f"{2 * config.RADIUS_MILES:.2f} mi on its long side")
-    png = out / "wifi-map.png"
+    png = out / f"wifi-map-{sheet_w:g}x{sheet_h:g}.png"  # the size is in the name so sheets of different sizes coexist
     img.save(png, dpi=(a.dpi, a.dpi), optimize=False)
     if not a.no_pdf:
         img.save(png.with_suffix(".pdf"), resolution=a.dpi)
     code.segno().save(str(out / "qr-reference.svg"), scale=10, border=4)
-    _svg(out / "artwork.svg", layout, code, dist, img.size, art_box, (art_w, art_h), (sheet_w, sheet_h))
+    _svg(out / "artwork.svg", layout, code, dist, img.size, art_box, (art_w, art_h), (sheet_w, sheet_h), png.name)
     prev = img.copy()
     prev.thumbnail((1200, 1200), Image.LANCZOS)
     prev.save(out / "preview.jpg", quality=88)

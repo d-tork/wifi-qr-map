@@ -1,7 +1,8 @@
 # Wi-Fi QR colonial map. `make demo` renders with dummy credentials and validates.
 PY      ?= .venv/bin/python
 OUT     ?= build
-IMAGE   ?= $(OUT)/wifi-map.png
+# newest wifi-map-<W>x<H>.png
+IMAGE   ?= $(shell ls -t $(OUT)/wifi-map-*x*.png 2>/dev/null | grep -v module-check | head -1)
 ARGS    ?=
 CONFIG  ?= config.yaml
 export QRMAP_CONFIG := $(abspath $(CONFIG))
@@ -34,8 +35,8 @@ validate:
 	$(PY) -m qrmap.validate $(IMAGE)
 
 proof: $(IMAGE)
-	$(PY) -c "from PIL import Image; Image.MAX_IMAGE_PIXELS=None; im=Image.open('$(IMAGE)').convert('RGB'); im.thumbnail((3600, 3600), Image.LANCZOS); im.save('$(OUT)/proof-8in.pdf', resolution=450)"
-	@echo "wrote $(OUT)/proof-8in.pdf (print at 100%, no 'fit to page')"
+	$(PY) -c "from PIL import Image; Image.MAX_IMAGE_PIXELS=None; im=Image.open('$(IMAGE)').convert('RGB'); im.thumbnail((3600, 3600), Image.LANCZOS); im.save('$(basename $(IMAGE))-proof-8in.pdf', resolution=450)"
+	@echo "wrote $(basename $(IMAGE))-proof-8in.pdf (print at 100%, no 'fit to page')"
 
 test:
 	$(PY) -m pytest -q tests
