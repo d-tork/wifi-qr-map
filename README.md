@@ -67,8 +67,8 @@ through `WIFI_LEGEND_*` in `wifi.env`.
 
 | File | What it is |
 |---|---|
-| `wifi-map.png` | Final art; 3600 × 3600 px at the default 12 × 12 in, 300 dpi (pHYs set) |
-| `wifi-map.pdf` | Same, on a page of the print size, for the print shop |
+| `wifi-map-<W>x<H>.png` | Final art, named for its print size in inches (`wifi-map-12x12.png`: 3600 × 3600 px at the default, 300 dpi, pHYs set) |
+| `wifi-map-<W>x<H>.pdf` | Same, on a page of the print size, for the print shop |
 | `ward-detail.png` | Crop of the hidden ward at 1:1 |
 | `artwork.svg` | Inkscape master: the final raster, plus hidden layers with the vector QR reference and the quiet-zone outline |
 | `qr-reference.svg` | The plain QR code, for comparison |

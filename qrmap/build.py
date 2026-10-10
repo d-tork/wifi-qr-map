@@ -23,6 +23,7 @@ from PIL import Image
 from . import config, district, frame, guard, osm, qr, render_map, validate
 
 Image.MAX_IMAGE_PIXELS = None
+MAX_SS_PIXELS = 150_000_000  # supersampled canvas size above which the line art is drawn at 1x
 DEMO = {"ssid": "Alexandria Guest", "password": "Potomac-1749", "security": "WPA"}
 
 
@@ -66,7 +67,7 @@ def legend_entries(a, ssid, password, env) -> tuple[str, str | None]:
 
 
 def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.District,
-         sheet: tuple[int, int], art_box: tuple[int, int], art_size: tuple[int, int], inches: tuple[float, float]):
+         sheet: tuple[int, int], art_box: tuple[int, int], art_size: tuple[int, int], inches: tuple[float, float], png_name: str):
     """Inkscape master: the whole sheet, plus the vector QR reference as layers (drawn in
     map pixels, so they sit in a group moved and scaled onto the map)."""
     (w, h), (ax, ay) = sheet, art_box
@@ -82,7 +83,7 @@ def _svg(out: Path, layout: config.Layout, code: qr.Code, dist: district.Distric
      xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
      width="{inches[0]:g}in" height="{inches[1]:g}in" viewBox="0 0 {w} {h}">
   <g {lay} inkscape:label="Final artwork" sodipodi:insensitive="true">
-    <image xlink:href="wifi-map.png" width="{w}" height="{h}"/></g>
+    <image xlink:href="{png_name}" width="{w}" height="{h}"/></g>
   <g {lay} inkscape:label="QR reference (dark modules)" style="display:none;opacity:0.5" {place}>
     <path d="{dark}" fill="#d00"/></g>
   <g {lay} inkscape:label="Quiet zone (keep light)" style="display:none" {place}>
@@ -118,7 +119,10 @@ def build(a) -> Path:
 
     net, pw = legend_entries(a, ssid, password, env)
     legend = None if a.no_legend else {"title": config.LEGEND_TITLE, "network": net, "password": pw}
-    art = render_map.render(model, layout, ss=a.ss, district=dist, code=code, legend=legend)
+    ss = a.ss or (2 if layout.width * layout.height * 4 <= MAX_SS_PIXELS else 1)
+    if ss != 2 and not a.ss:
+        print(f"large sheet: supersampling off (ss={ss}) to fit in memory")
+    art = render_map.render(model, layout, ss=ss, district=dist, code=code, legend=legend)
     print(f"{art['courts']} court(s) elsewhere in town echo the finder patterns")
     final, fixed = guard.guard(art["rgb"], code, dist)
     print(f"guard pass corrected {fixed} module centre(s)")
@@ -133,12 +137,12 @@ def build(a) -> Path:
     print(f"sheet {sheet_w:g} x {sheet_h:g} in, map {art_w / a.dpi:.2f} x {art_h / a.dpi:.2f} in, "
           f"{border:g} in border ({img.width} x {img.height} px); map covers "
           f"{2 * config.RADIUS_MILES:.2f} mi on its long side")
-    png = out / "wifi-map.png"
+    png = out / f"wifi-map-{sheet_w:g}x{sheet_h:g}.png"  # the size is in the name so sheets of different sizes coexist
     img.save(png, dpi=(a.dpi, a.dpi), optimize=False)
     if not a.no_pdf:
         img.save(png.with_suffix(".pdf"), resolution=a.dpi)
     code.segno().save(str(out / "qr-reference.svg"), scale=10, border=4)
-    _svg(out / "artwork.svg", layout, code, dist, img.size, art_box, (art_w, art_h), (sheet_w, sheet_h))
+    _svg(out / "artwork.svg", layout, code, dist, img.size, art_box, (art_w, art_h), (sheet_w, sheet_h), png.name)
     prev = img.copy()
     prev.thumbnail((1200, 1200), Image.LANCZOS)
     prev.save(out / "preview.jpg", quality=88)
@@ -186,7 +190,7 @@ def main(argv=None):
     ap.add_argument("--border", type=float, help="blank border on all sides in inches, for a canvas wrap or "
                     f"mat (default: print.border in config.yaml, {config.PRINT_BORDER:g})")
     ap.add_argument("--dpi", type=int, default=300)
-    ap.add_argument("--ss", type=int, default=2, help="supersampling for line art")
+    ap.add_argument("--ss", type=int, help="supersampling for line art (default 2; 1 on sheets too big to supersample in memory)")
     ap.add_argument("--out", default=str(config.ROOT / "build"))
     ap.add_argument("--no-pdf", action="store_true")
     ap.add_argument("--skip-validate", action="store_true")

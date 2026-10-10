@@ -14,7 +14,7 @@ subtitle: "with ROSEMONT and the late TOWN of POTOMAC, call’d DEL RAY, in VIRG
 # short side (so the code and houses grow with it) and showing more ground along the long
 # side. `make fetch build ARGS="--size 24x36 --border 3"` overrides; each size needs its
 # own fetch. Big sheets are big rasters (24 in is 7200 px square at 300 dpi): allow
-# plenty of memory, or lower --dpi.
+# plenty of memory, or lower --dpi. Sheets that big are drawn without supersampling.
 print:
   size: 12x12
   border: 0
