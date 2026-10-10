@@ -23,6 +23,7 @@ from PIL import Image
 from . import config, district, frame, guard, osm, qr, render_map, validate
 
 Image.MAX_IMAGE_PIXELS = None
+MAX_SS_PIXELS = 150_000_000  # supersampled canvas size above which the line art is drawn at 1x
 DEMO = {"ssid": "Alexandria Guest", "password": "Potomac-1749", "security": "WPA"}
 
 
@@ -118,7 +119,10 @@ def build(a) -> Path:
 
     net, pw = legend_entries(a, ssid, password, env)
     legend = None if a.no_legend else {"title": config.LEGEND_TITLE, "network": net, "password": pw}
-    art = render_map.render(model, layout, ss=a.ss, district=dist, code=code, legend=legend)
+    ss = a.ss or (2 if layout.width * layout.height * 4 <= MAX_SS_PIXELS else 1)
+    if ss != 2 and not a.ss:
+        print(f"large sheet: supersampling off (ss={ss}) to fit in memory")
+    art = render_map.render(model, layout, ss=ss, district=dist, code=code, legend=legend)
     print(f"{art['courts']} court(s) elsewhere in town echo the finder patterns")
     final, fixed = guard.guard(art["rgb"], code, dist)
     print(f"guard pass corrected {fixed} module centre(s)")
@@ -186,7 +190,7 @@ def main(argv=None):
     ap.add_argument("--border", type=float, help="blank border on all sides in inches, for a canvas wrap or "
                     f"mat (default: print.border in config.yaml, {config.PRINT_BORDER:g})")
     ap.add_argument("--dpi", type=int, default=300)
-    ap.add_argument("--ss", type=int, default=2, help="supersampling for line art")
+    ap.add_argument("--ss", type=int, help="supersampling for line art (default 2; 1 on sheets too big to supersample in memory)")
     ap.add_argument("--out", default=str(config.ROOT / "build"))
     ap.add_argument("--no-pdf", action="store_true")
     ap.add_argument("--skip-validate", action="store_true")
