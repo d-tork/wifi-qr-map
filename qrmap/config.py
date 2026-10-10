@@ -141,8 +141,6 @@ CORE_DARK = 44.0
 # Engravers put cartouches in open water; set legend.center in config.yaml to do the same.
 LEGEND_CENTER = _latlon((CFG.get("legend") or {}).get("center"), (SOUTH, WEST))
 LEGEND_TITLE = "REFERENCES"
-LEGEND_NETWORK_LABEL = "Network"
-LEGEND_PASSWORD_LABEL = "Password"
 LEGEND_TEXT_INCHES = 0.13  # label size; values print slightly smaller in Caslon
 # Lettered references above the Wi-Fi rows, keyed to letters on the map, as on an
 # engraved plan: `auto` picks real named buildings from OSM; a list of

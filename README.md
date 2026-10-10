@@ -7,9 +7,10 @@ block on the map is drawn as house plots the size of one QR module, and in the h
 blocks a house is a dark module and an empty plot a light one. The finder patterns are
 courtyard blocks, a building type that turns up elsewhere in town too. A table of
 references in the river gives the network name and password, with a small Wi-Fi mark,
-for any device that can't scan. They sit under lettered entries for real buildings on
-the sheet (Carlyle House, Christ Church…), keyed to letters on the map, so they read as
-two more references. Every build is checked by decoders before it counts as done.
+for any device that can't scan. The network name follows lettered entries for real
+buildings on the sheet (Carlyle House, Christ Church…), keyed to letters on the map,
+with only the Wi-Fi mark where a letter would be. The password stands alone at the
+foot of the table with no label, so nothing on the sheet says "password". Every build is checked by decoders before it counts as done.
 
 Alexandria is only the default. Set any centre point in `config.yaml` to map somewhere
 else (see [Mapping another place](#mapping-another-place)).
@@ -37,8 +38,9 @@ make proof           # 8 x 8 in PDF of the sheet, for a cheap test print
 `make build` exits non-zero if validation fails. The password is never accepted as a
 command-line flag. It comes from `$WIFI_PASSWORD`, the gitignored `wifi.env`, or a
 prompt, and it is masked in every log and report. The printed legend shows it on
-purpose; to leave it off, use `--no-legend-password` or `--legend-password-text "ask
-at the bar"`.
+purpose, unlabelled at the foot of the table; to leave it off, use
+`--no-legend-password` or `--legend-password-text "ask at the bar"`. Open networks
+print no password line.
 
 ### Options (`make build ARGS="..."`)
 
@@ -49,9 +51,8 @@ at the bar"`.
 | `--module-in IN` | `0.05` | Printed module and house-plot size. Bigger is easier to scan; the map's scale stays the same. |
 | `--ecc l/m/q/h` | `q` | Error correction. Higher means more modules, so a bigger ward. |
 | `--version N` | smallest that fits | Force more modules, so more blocks in the ward |
-| `--legend-network-label` / `--legend-password-label` | `Network` / `Password` | Legend labels |
-| `--legend-network-text` / `--legend-password-text` | SSID / password | Legend values |
-| `--no-legend-password`, `--no-legend` | | Omit the password row, or the whole legend |
+| `--legend-network-text` / `--legend-password-text` | SSID / password | Legend text (printed without labels) |
+| `--no-legend-password`, `--no-legend` | | Omit the password line, or the whole legend |
 
 Location, title, ward and legend position, landmarks, hills and place labels are set in
 `config.yaml`. Plot size, house density, hatch pitch, street widths, tones, legend text
@@ -118,8 +119,9 @@ OSM extract ─► shapely blocks, cut back from every road ─► each block la
   buildings, markets and museums, churches, then stations. Within each kind, shorter
   names win, and the picks are spread apart and kept off the ward and the cartouche.
   Each gets an engraved letter on the map (beside its symbol, if it is a landmark),
-  lettered north to south. The Network and Password rows follow in the same type and
-  leaders. Set `references:` in `config.yaml` to list your own (`{at: [lat, lon],
+  lettered north to south. The network name follows in the same type and leaders,
+  keyed by the Wi-Fi mark instead of a letter, and the password closes the table on
+  its own line. Set `references:` in `config.yaml` to list your own (`{at: [lat, lon],
   text: ...}`) or `[]` for none.
 - **Deterministic.** Every random choice (which plots are built, party walls, courts)
   comes from a fixed seed, so the same inputs give a byte-identical sheet.

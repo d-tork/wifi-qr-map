@@ -64,14 +64,15 @@ def test_district_transform():
     assert abs(x - 0) < 1e-9 and abs(y - 0) < 1e-9
 
 
-def test_legend_rows():
+def test_legend_entries():
     from types import SimpleNamespace
-    from qrmap.build import legend_rows
-    a = SimpleNamespace(legend_network_label=None, legend_password_label="Key", legend_network_text=None,
-                        legend_password_text=None, no_legend_password=False)
-    assert legend_rows(a, "Guest", "pw", {}) == [("Network", "Guest"), ("Key", "pw")]
+    from qrmap.build import legend_entries
+    a = SimpleNamespace(legend_network_text=None, legend_password_text=None, no_legend_password=False)
+    assert legend_entries(a, "Guest", "pw", {}) == ("Guest", "pw")
+    assert legend_entries(a, "Guest", None, {}) == ("Guest", None)  # open network
+    assert legend_entries(a, "Guest", "pw", {"WIFI_LEGEND_PASSWORD_TEXT": "ask at the bar"}) == ("Guest", "ask at the bar")
     a.no_legend_password = True
-    assert legend_rows(a, "Guest", "pw", {}) == [("Network", "Guest")]
+    assert legend_entries(a, "Guest", "pw", {}) == ("Guest", None)
 
 
 def test_config_bbox_is_square_around_center():
@@ -205,8 +206,12 @@ def test_references_pick_real_buildings(monkeypatch):
 def test_legend_lists_references_before_wifi_rows():
     from qrmap import render_map, ward
     cv = render_map.Canvas(config.Layout(dpi=100), 1)
-    lg = {"title": "REFERENCES", "rows": [("Network", "Guest")], "refs": [("A", "Carlyle House")]}
+    lg = {"title": "REFERENCES", "network": "Guest", "password": "pw", "refs": [("A", "Carlyle House")]}
     L = ward.legend_box(cv, lg, render_map.font)
-    assert L["rows"] == [("A", "Carlyle House"), ("Network", "Guest")] and L["icon_row"] == 1
+    # No "Network" / "Password" labels: the Wi-Fi mark keys the name; the password stands alone.
+    assert L["rows"] == [("A", "Carlyle House"), ("", "Guest")] and L["icon_row"] == 1
+    assert L["password"] == "pw" and all("pw" not in v for _, v in L["rows"])
+    H = L["box"][3] - L["box"][1]
+    assert H > ward.legend_box(cv, {**lg, "password": None}, render_map.font)["box"][3] - L["box"][1] - 1e-6
     x0, y0, x1, y1 = L["box"]
     assert cv.box[0] <= x0 < x1 <= cv.box[2] and cv.box[1] <= y0 < y1 <= cv.box[3]

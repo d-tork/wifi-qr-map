@@ -100,21 +100,23 @@ def wifi_mark(draw, cx, cy, s, fill=255, width=2):
 
 def legend_box(cv, legend: dict, font) -> dict:
     """Fonts, metrics and the box (supersampled pixels) of the cartouche: title, then
-    'label ...... value' rows, the lettered references first and the Wi-Fi rows after."""
+    'label ...... value' rows (the lettered references, then the network name keyed by
+    the Wi-Fi mark alone), then the password by itself on the last line, unlabelled."""
     from .geo import proj
 
     ss, dpi = cv.ss, cv.layout.dpi
     base = dpi * ss * config.LEGEND_TEXT_INCHES
     L = {"base": base, "f_title": font("caps", base * 1.05), "f_label": font("italic", base),
          "f_value": font("caslon", base * 0.95), "pad": base * 0.9, "icon": base * 1.1,
-         "line_h": base * 1.55, "rows": [*legend.get("refs", []), *legend["rows"]],
-         "icon_row": len(legend.get("refs", []))}
+         "line_h": base * 1.55, "rows": [*legend.get("refs", []), ("", legend["network"])],
+         "icon_row": len(legend.get("refs", [])), "password": legend.get("password")}
     rows = L["rows"]
-    lab_w = max(L["f_label"].getlength(lb) for lb, _ in rows) + L["icon"] * 1.4
+    lab_w = max([L["f_label"].getlength(lb) for lb, _ in rows] + [L["icon"]])
     val_w = max(L["f_value"].getlength(v) for _, v in rows)
+    pw_w = L["f_value"].getlength(L["password"]) if L["password"] else 0
     L["title_w"] = L["f_title"].getlength(" ".join(legend["title"]))
-    W = max(lab_w + base * 1.6 + val_w, L["title_w"]) + 2 * L["pad"]
-    H = L["pad"] * 2 + L["line_h"] * (len(rows) + 1.2)
+    W = max(lab_w + base * 1.6 + val_w, L["title_w"], pw_w) + 2 * L["pad"]
+    H = L["pad"] * 2 + L["line_h"] * (len(rows) + 1.2 + (1.15 if L["password"] else 0))
 
     cx, cy = cv.xy(*proj(*legend.get("center", config.LEGEND_CENTER)))
     bx0, by0, bx1, by1 = cv.box
@@ -149,17 +151,24 @@ def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list)
     for i, (label, value) in enumerate(L["rows"]):
         y = ty + L["line_h"] * (i + 1.15)
         lx = x0 + pad
-        if i == L["icon_row"]:
+        if i == L["icon_row"]:  # the Wi-Fi mark stands where a reference letter would
             wifi_mark(d, lx + icon * 0.45, y + base * 0.22, icon * 0.5, fill=225, width=w + 1)
-        lx += icon * 1.4
-        d.text((lx, y), label, font=f_label, fill=240, anchor="lm")
+            key_w = icon * 0.9
+        else:
+            d.text((lx, y), label, font=f_label, fill=240, anchor="lm")
+            key_w = f_label.getlength(label)
         vx = x1 - pad - f_value.getlength(value)
         d.text((x1 - pad, y), value, font=f_value, fill=250, anchor="rm")
-        # Dotted leader between label and value, as in an engraved table of references.
-        sx = lx + f_label.getlength(label) + base * 0.4
+        # Dotted leader between key and value, as in an engraved table of references.
+        sx = lx + key_w + base * 0.4
         ex = vx - base * 0.4
         step = base * 0.32
         t = sx
         while t < ex:
             d.ellipse([t - w, y + base * 0.12 - w, t + w, y + base * 0.12 + w], fill=150)
             t += step
+    if L["password"]:  # alone, centred, under a short rule
+        y = ty + L["line_h"] * (len(L["rows"]) + 1.3)
+        d.line([cx - title_w * 0.2, y - L["line_h"] * 0.55, cx + title_w * 0.2, y - L["line_h"] * 0.55],
+               fill=150, width=w)
+        d.text((cx, y), L["password"], font=f_value, fill=250, anchor="mm")
