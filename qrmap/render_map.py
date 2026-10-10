@@ -1,4 +1,4 @@
-"""Engraved, hand-coloured 18th-century-style map art (no QR knowledge here).
+"""Engraved, hand-coloured 18th-century-style map art, with the QR ward drawn in.
 
 Everything is drawn as uint8 coverage masks at `ss`x supersampling, downsampled to
 the output resolution, then composited as ink over washes over parchment.
@@ -14,13 +14,14 @@ from PIL import Image, ImageDraw, ImageFont
 from shapely.affinity import rotate
 from shapely.geometry import LineString, MultiPolygon, Polygon, box
 
-from . import config
+from . import config, ward
 from .geo import FRAME, WIDTH_M, GeoModel, proj
 
 FONT_FILES = {
     "roman": "im-fell-english-latin-400-normal.woff",
     "italic": "im-fell-english-latin-400-italic.woff",
     "sc": "im-fell-english-sc-latin-400-normal.woff",
+    "caslon": "libre-caslon-text-latin-400-normal.woff",  # clear lining figures for the legend
 }
 
 
@@ -104,7 +105,7 @@ def _noise(shape, rng, scales=((8, 0.5), (40, 0.3), (180, 0.2))) -> np.ndarray:
 
 
 def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749,
-           quiet_px: int = 0) -> dict:
+           district=None, code=None, legend: dict | None = None) -> dict:
     """Returns {"rgb": float32 HxWx3 in 0..1 at output size, plus named 1x masks}."""
     rng = np.random.default_rng(seed)
     cv = Canvas(layout, ss)
@@ -211,7 +212,7 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
         cv.line(d["ink"], b.exterior, lw * 1.3, 235)
     bmask = _arr(layers["blocks"])
     hatch = _hatch((S, S), max(4, cv.m(7.5)), lw, 45)
-    ink = np.maximum(_arr(layers["ink"]), np.minimum(bmask, hatch) * 0.55).astype(np.uint8)
+    ink = np.maximum(_arr(layers["ink"]), np.minimum(bmask, hatch) * 0.8).astype(np.uint8)
     layers["ink"] = Image.fromarray(ink)
     d["ink"] = ImageDraw.Draw(layers["ink"])
 
@@ -256,25 +257,32 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     layers["ink"] = Image.fromarray(ink)
     d["ink"] = ImageDraw.Draw(layers["ink"])
 
-    _landmarks(cv, d["ink"], model, lw)
     occupied = []
+    if district is not None:
+        ward.draw_ward(cv, layers, district, code, rng, lw)
+        occupied.append(district.bbox(ss, extra=0.5))
+    if legend:
+        ward.draw_legend(cv, layers, legend, lw, font, occupied)
+    d = {k: ImageDraw.Draw(v) for k, v in layers.items()}
+    _landmarks(cv, d["ink"], model, lw, occupied)
     _place_labels(cv, layers["ink"], model, roads, occupied, rng)
-    if quiet_px:
-        _compass(cv, d["ink"], quiet_px * ss, lw)
+    _compass(cv, ImageDraw.Draw(layers["ink"]), round(0.95 * layout.dpi * ss), lw)
 
     # --- downsample masks and composite ---
     out = layout.size
     to1 = {k: np.asarray(v.resize((out, out), Image.LANCZOS), np.float32) / 255
            for k, v in {**layers, "clip": clip}.items()}
+    to1.setdefault("ward", np.zeros((out, out), np.float32))
     rgb = _parchment((out, out), rng)
     inside = to1["clip"][..., None]
     for key, col, strength in (("fields", config.FIELD_WASH, 0.55), ("parks", config.PARK_WASH, 0.6),
-                               ("blocks", config.BLOCK_WASH, 0.7), ("water", config.WATER_WASH, 0.8)):
+                               ("blocks", config.BLOCK_WASH, 0.8), ("ward", config.BLOCK_WASH, 0.9),
+                               ("water", config.WATER_WASH, 0.8)):
         a = (to1[key] * strength)[..., None] * inside
         rgb = rgb * (1 - a) + rgb * (np.array(col, np.float32) / 255) * a  # multiply wash
     ia = (np.clip(to1["ink"] * 1.05, 0, 1) * 0.94)[..., None] * inside
     rgb = rgb * (1 - ia) + (np.array(config.INK, np.float32) / 255) * ia
-    return {"rgb": np.clip(rgb, 0, 1), **{k: to1[k] for k in ("water", "blocks", "parks", "fields", "ink")}}
+    return {"rgb": np.clip(rgb, 0, 1), **{k: to1[k] for k in ("water", "blocks", "ward", "ink")}}
 
 
 def _pt(x, y):
@@ -295,11 +303,17 @@ def _parchment(shape, rng) -> np.ndarray:
     return np.clip(base * tint, 0, 1).astype(np.float32)
 
 
-def _landmarks(cv: Canvas, draw, model: GeoModel, lw):
+def _inside(bb, x, y, pad=0):
+    return bb[0] - pad <= x <= bb[2] + pad and bb[1] - pad <= y <= bb[3] + pad
+
+
+def _landmarks(cv: Canvas, draw, model: GeoModel, lw, occupied):
     w = max(1, round(lw * 1.4))
     for x, y, kind, _ in model.landmarks:
         cx, cy = cv.xy(x, y)
         s = cv.m(22)
+        if any(_inside(bb, cx, cy, s * 2.5) for bb in occupied):
+            continue
         if kind == "church":
             draw.rectangle([cx - s * .5, cy - s * .35, cx + s * .5, cy + s * .35], fill=250)
             draw.line([cx, cy - s * 1.3, cx, cy - s * .35], fill=250, width=w)
@@ -355,7 +369,12 @@ def _place_labels(cv: Canvas, ink_img, model, roads, occupied, rng):
         fnt = font(lb.style, base * lb.size)
         text = lb.text.upper() if lb.style == "caps" else lb.text
         txt = _text_img(text, fnt, lb.tracking * base * lb.size)
-        _stamp(ink_img, txt, *cv.xy(*proj(lb.lat, lb.lon)), lb.angle, occupied, force=True)
+        cx, cy = cv.xy(*proj(lb.lat, lb.lon))
+        # Place names are kept, but nudged upward off the ward, the legend and each other.
+        for _ in range(40):
+            if _stamp(ink_img, txt, cx, cy, lb.angle, occupied):
+                break
+            cy -= txt.height * 0.6
     # Street names along their longest straight run, keeping text upright.
     seen = set()
     by_name = {}
@@ -388,11 +407,11 @@ def _place_labels(cv: Canvas, ink_img, model, roads, occupied, rng):
                 break
 
 
-def _compass(cv: Canvas, draw, quiet, lw):
-    """Small compass rose tucked into the lower-right corner of the quiet zone."""
+def _compass(cv: Canvas, draw, size, lw):
+    """Compass rose in the lower-right corner of the map (river side)."""
     x1, y1 = cv.box[2], cv.box[3]
-    R = quiet * 0.42
-    cx, cy = x1 - quiet * 0.5, y1 - quiet * 0.5
+    R = size * 0.42
+    cx, cy = x1 - size * 0.5, y1 - size * 0.55
     w = max(1, round(lw))
     draw.ellipse([cx - R * .55, cy - R * .55, cx + R * .55, cy + R * .55], outline=150, width=w)
     for i in range(16):

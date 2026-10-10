@@ -4,11 +4,12 @@
 
 Checks, in order:
   1. Print geometry: 12 x 12 in at the declared DPI (PNG pHYs and PDF MediaBox).
-  2. Module fidelity: every module centre, sampled from the image, binarises to the
-     intended bit (zero errors allowed), with the light/dark contrast margin reported.
+  2. Module fidelity: every module centre of the hidden ward, sampled from the image
+     (following its rotation), binarises to the intended bit (zero errors allowed),
+     with the light/dark contrast margin reported.
   3. Decoder battery: ZXing-C++ and three OpenCV detectors, at several capture sizes
-     and under simulated phone conditions (perspective, blur, noise, JPEG, glare, low
-     light). The decoded text must hash to the manifest's payload_sha256.
+     mostly close-ups of the ward under simulated phone conditions (perspective, blur,
+     noise, JPEG, glare, low light). The decoded text must hash to the manifest's payload_sha256.
 Exits non-zero if any gate fails, so it can sit at the end of a Makefile.
 Decoded text is printed with the password masked.
 """
@@ -26,6 +27,8 @@ import cv2
 import numpy as np
 import zxingcpp
 from PIL import Image
+
+from .district import District
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -126,23 +129,31 @@ def low_light(img):
     return noise((f * 255).astype(np.uint8), 7, 3)
 
 
-def captures(rgb: np.ndarray):
-    """(name, image, stressed?) — RGB uint8 images as a phone might deliver them."""
-    yield "clean full-res", rgb, False
-    for w in (1600, 1000, 640):
-        yield f"clean {w}px", resize(rgb, w), False
-    base = resize(rgb, 1000)
-    yield "rotated 17deg", rotate(base, 17), True
-    yield "perspective 6%", perspective(base, 0.06, 1), True
-    yield "perspective 10%", perspective(base, 0.10, 2), True
-    yield "blur sigma 1.5", cv2.GaussianBlur(base, (0, 0), 1.5), True
-    yield "blur sigma 2.5 @1400px", cv2.GaussianBlur(resize(rgb, 1400), (0, 0), 2.5), True
-    yield "sensor noise", noise(base, 10, 4), True
-    yield "jpeg q35", jpeg(base, 35), True
-    yield "glare", glare(base), True
-    yield "low light", low_light(base), True
-    yield "small 480px", resize(rgb, 480), True
-    yield "combo: persp+blur+noise+jpeg", jpeg(noise(cv2.GaussianBlur(perspective(resize(rgb, 1200), 0.07, 5), (0, 0), 1.2), 6, 6), 60), True
+def captures(rgb: np.ndarray, dist: District):
+    """(name, image, stressed?) as a phone might deliver them. The code is small on a
+    12 in sheet, so most captures are close-ups framing the ward with some map round it,
+    as a person holding a phone 15-30 cm away would."""
+    x0, y0, x1, y1 = dist.bbox()
+    pad = (x1 - x0) * 0.6
+    cx0, cy0 = int(max(0, x0 - pad)), int(max(0, y0 - pad))
+    close = rgb[cy0:int(y1 + pad), cx0:int(x1 + pad)]
+    yield "sheet full-res", rgb, False
+    yield "sheet 2400px", resize(rgb, 2400), False
+    for w in (1400, 900, 600):
+        yield f"close-up {w}px", resize(close, w), False
+    base = resize(close, 900)
+    yield "close-up rotated 17deg", rotate(base, 17), True
+    yield "close-up perspective 6%", perspective(base, 0.06, 1), True
+    yield "close-up perspective 10%", perspective(base, 0.10, 2), True
+    yield "close-up blur sigma 1.5", cv2.GaussianBlur(base, (0, 0), 1.5), True
+    yield "close-up blur sigma 2.5 @1400", cv2.GaussianBlur(resize(close, 1400), (0, 0), 2.5), True
+    yield "close-up sensor noise", noise(base, 10, 4), True
+    yield "close-up jpeg q35", jpeg(base, 35), True
+    yield "close-up glare", glare(base), True
+    yield "close-up low light", low_light(base), True
+    yield "close-up small 400px", resize(close, 400), True
+    yield "sheet 1500px (arm's length)", resize(rgb, 1500), True
+    yield "combo: persp+blur+noise+jpeg", jpeg(noise(cv2.GaussianBlur(perspective(resize(close, 1100), 0.07, 5), (0, 0), 1.2), 6, 6), 60), True
 
 
 # --- checks ---------------------------------------------------------------------------
@@ -163,44 +174,59 @@ def check_print(path: Path, manifest) -> dict:
     return res
 
 
+def _district(manifest) -> District:
+    return District(**manifest["district"])
+
+
 def check_modules(rgb: np.ndarray, manifest) -> dict:
-    g = manifest["geometry"]
+    dist = _district(manifest)
     dark = np.array([[c == "1" for c in row] for row in manifest["matrix"]])
     function = np.array([[c == "1" for c in row] for row in manifest["function"]])
-    n, m = g["n"], g["module"]
+    n = dist.n
     gr = gray(rgb).astype(np.float32)
-    core = max(1, int(m * 0.3))
-    a = (m - core) // 2
-    cores = np.zeros((n, n), np.float32)
-    whole = np.zeros((n, n), np.float32)
-    for r in range(n):
-        for c in range(n):
-            y, x = g["y0"] + r * m, g["x0"] + c * m
-            cores[r, c] = gr[y + a:y + a + core, x + a:x + a + core].mean()
-            whole[r, c] = gr[y:y + m, x:x + m].mean()
-    thr = (cores[dark].max() + cores[~dark].min()) / 2 if dark.any() and (~dark).any() else 128
+    # Sample a k x k lattice over the central 30% of each module (and over the whole
+    # module), following the ward's rotation.
+    k = 7
+    core_off = (np.arange(k) + 0.5) / k * 0.3 + 0.35
+    whole_off = (np.arange(k) + 0.5) / k
+
+    def sample(r, c, offs):
+        pts = [dist.to_px(c + du, r + dv) for dv in offs for du in offs]
+        xs = np.clip(np.round([p[0] for p in pts]).astype(int), 0, gr.shape[1] - 1)
+        ys = np.clip(np.round([p[1] for p in pts]).astype(int), 0, gr.shape[0] - 1)
+        return gr[ys, xs].mean()
+
+    cores = np.array([[sample(r, c, core_off) for c in range(n)] for r in range(n)])
+    whole = np.array([[sample(r, c, whole_off) for c in range(n)] for r in range(n)])
+    thr = (cores[dark].max() + cores[~dark].min()) / 2
     core_err = (cores < thr) != dark
     margin = float(cores[~dark].min() - cores[dark].max())
     # What a badly defocused camera would see: whole-module averages, Otsu threshold.
     t_whole, _ = cv2.threshold(whole.astype(np.uint8), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     whole_err = (whole < t_whole) != dark
+    # Quiet zone: mean darkness of the ring, which should look like paper to a scanner.
+    ring = [dist.to_px(u, v) for u in np.arange(-dist.quiet + .5, dist.n + dist.quiet, .5)
+            for v in (-dist.quiet + .5, -.5, dist.n + .5, dist.n + dist.quiet - .5)]
+    qz = np.mean([gr[int(y), int(x)] for x, y in ring])
     return {
         "modules": int(n * n),
+        "module_inches": round(manifest.get("module_inches", 0), 4),
         "core_errors": int(core_err.sum()),
         "core_errors_in_function_patterns": int((core_err & function).sum()),
         "core_contrast_margin": round(margin, 1),
         "core_mean_dark": round(float(cores[dark].mean()), 1),
         "core_mean_light": round(float(cores[~dark].mean()), 1),
+        "quiet_zone_mean": round(float(qz), 1),
         "defocus_module_errors_pct": round(100 * float(whole_err.mean()), 2),
         "ok": bool(core_err.sum() == 0 and margin >= MIN_CORE_CONTRAST),
         "_core_err": core_err,
     }
 
 
-def check_decoders(rgb: np.ndarray, sha: str | None) -> dict:
+def check_decoders(rgb: np.ndarray, sha: str | None, dist: District) -> dict:
     decs = decoders()
     rows, clean_ok, stress = [], True, []
-    for name, img, stressed in captures(rgb):
+    for name, img, stressed in captures(rgb, dist):
         row = {"capture": name}
         hits = 0
         for dn, fn in decs.items():
@@ -221,15 +247,15 @@ def check_decoders(rgb: np.ndarray, sha: str | None) -> dict:
 
 
 def error_overlay(rgb, manifest, core_err) -> np.ndarray:
-    out = (rgb.astype(np.float32) * 0.6 + 255 * 0.4).astype(np.uint8)
-    g = manifest["geometry"]
-    m = g["module"]
+    """Close-up of the ward: wrong modules boxed in red, quiet zone edge in blue."""
+    dist = _district(manifest)
+    out = rgb.copy()
     for r, c in zip(*np.nonzero(core_err)):
-        x, y = g["x0"] + c * m, g["y0"] + r * m
-        cv2.rectangle(out, (x, y), (x + m - 1, y + m - 1), (220, 0, 0), max(2, m // 10))
-    x0, y0, s = g["x0"], g["y0"], g["n"] * m
-    cv2.rectangle(out, (x0, y0), (x0 + s, y0 + s), (0, 90, 200), 3)
-    return out
+        pts = np.array(dist.square(c, r, c + 1, r + 1), np.int32)
+        cv2.polylines(out, [pts], True, (220, 0, 0), max(2, dist.module // 6))
+    cv2.polylines(out, [np.array(dist.reserve(), np.int32)], True, (0, 90, 200), 2)
+    x0, y0, x1, y1 = (int(v) for v in dist.bbox(extra=dist.quiet))
+    return out[max(0, y0):y1, max(0, x0):x1]
 
 
 def validate(image: Path, manifest_path: Path | None = None, report: Path | None = None, quiet=False) -> bool:
@@ -239,7 +265,7 @@ def validate(image: Path, manifest_path: Path | None = None, report: Path | None
 
     pr = check_print(image, manifest)
     mod = check_modules(rgb, manifest)
-    dec = check_decoders(rgb, manifest.get("payload_sha256"))
+    dec = check_decoders(rgb, manifest.get("payload_sha256"), _district(manifest))
     core_err = mod.pop("_core_err")
     Image.fromarray(error_overlay(rgb, manifest, core_err)).save(image.with_name(image.stem + "-module-check.png"))
 
@@ -259,13 +285,14 @@ def _print(r):
           f" = {p['inches'][0]:.2f} x {p['inches'][1]:.2f} in" + (f"; PDF {p['pdf_inches']}" if "pdf_inches" in p else ""))
     print(f"[{mark(m['ok'])}] modules      {m['core_errors']} centre errors of {m['modules']}"
           f" (function patterns: {m['core_errors_in_function_patterns']}); contrast margin {m['core_contrast_margin']}"
-          f" (dark {m['core_mean_dark']} / light {m['core_mean_light']}); defocus errors {m['defocus_module_errors_pct']}%")
+          f" (dark {m['core_mean_dark']} / light {m['core_mean_light']}, quiet zone {m['quiet_zone_mean']});"
+          f" {m['module_inches']} in modules; defocus errors {m['defocus_module_errors_pct']}%")
     print(f"[{mark(d['ok'])}] decoding     ZXing stress pass rate {d['zxing_stress_pass_rate']:.0%};"
           f" every clean capture read by >= {CLEAN_DECODERS_REQUIRED} decoders: {d['clean_ok']}")
     names = d["decoders"]
-    print("      " + "capture".ljust(32) + "".join(n.ljust(15) for n in names))
+    print("      " + "capture".ljust(34) + "".join(n.ljust(15) for n in names))
     for row in d["captures"]:
-        print("      " + row["capture"].ljust(32) + "".join(("ok" if row[n] else "--").ljust(15) for n in names))
+        print("      " + row["capture"].ljust(34) + "".join(("ok" if row[n] else "--").ljust(15) for n in names))
     text = next((row["text"] for row in d["captures"] if "text" in row), None)
     print(f"      decoded: {text}")
     print("RESULT:", "PASS" if r["ok"] else "FAIL")

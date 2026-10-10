@@ -26,9 +26,10 @@ def test_wifi_payload_escaping():
 
 def test_qr_roundtrip_and_mask_choice():
     payload = qr.wifi_payload("Guest", "correct horse", "WPA")
-    art = lambda n: np.tile(np.linspace(0, 1, n), (n, 1))
-    code = qr.make(payload, art_lightness=art)
-    assert 0 <= code.mask < 8 and code.error == "H"
+    code = qr.make(payload, score=qr.blockiness)
+    assert 0 <= code.mask < 8 and code.error == "Q"
+    assert code.agreement == max(qr.blockiness(*qr._matrices(qr.segno.make_qr(
+        payload, error="q", version=code.version, mask=k, boost_error=False))[:2]) for k in range(8))
     img = np.kron(~code.dark, np.ones((8, 8), bool)).astype(np.uint8) * 255
     img = np.pad(img, 32, constant_values=255)
     assert zxingcpp.read_barcodes(img)[0].text == payload
@@ -52,3 +53,22 @@ def test_osm_coastline_and_relation(tmp_path):
     assert not m.water.contains(translate(FRAME.centroid, -east / 4, 0))  # land side
     assert m.water.area > FRAME.area * 0.45
     assert any(name == "Test St" for _, _, name in m.roads)
+
+
+def test_district_transform():
+    from qrmap.district import District
+    d = District(cx=100, cy=100, module=10, n=20, quiet=3, angle=0)
+    assert d.to_px(0, 0) == (0, 0) and d.center(0, 0) == (5, 5)
+    r = District(cx=100, cy=100, module=10, n=20, quiet=3, angle=90)
+    x, y = r.to_px(20, 0)  # top-right corner turns to the top-left when rotated 90 deg CCW
+    assert abs(x - 0) < 1e-9 and abs(y - 0) < 1e-9
+
+
+def test_legend_rows():
+    from types import SimpleNamespace
+    from qrmap.build import legend_rows
+    a = SimpleNamespace(legend_network_label=None, legend_password_label="Key", legend_network_text=None,
+                        legend_password_text=None, no_legend_password=False)
+    assert legend_rows(a, "Guest", "pw", {}) == [("Network", "Guest"), ("Key", "pw")]
+    a.no_legend_password = True
+    assert legend_rows(a, "Guest", "pw", {}) == [("Network", "Guest")]

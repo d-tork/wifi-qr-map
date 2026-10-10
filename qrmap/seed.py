@@ -179,8 +179,9 @@ def default_labels() -> list[Label]:
     return [
         Label(38.8005, -77.0470, "ALEXANDRIA", 2.3, "caps", 9, 0.35),
         Label(38.8125, -77.0700, "ROSEMONT", 1.5, "caps", 0, 0.3),
-        Label(38.8300, -77.0572, "TOWN of POTOMAC", 1.45, "caps", 0, 0.12),
+        # Listed subtitle-first: labels displaced by the QR ward stack upward in order.
         Label(38.8282, -77.0572, "now call'd Del Ray", 1.05, "italic"),
+        Label(38.8300, -77.0572, "TOWN of POTOMAC", 1.45, "caps", 0, 0.12),
         Label(38.8180, -77.0310, "POTOMAC  RIVER", 2.4, "caps", 82, 0.25),
         Label(38.7908, -77.0520, "Hunting Creek", 1.15, "italic", -8),
         Label(38.8452, -77.0590, "Four Mile Run", 1.0, "italic", -5),

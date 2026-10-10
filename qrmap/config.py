@@ -29,7 +29,6 @@ class Layout:
     top: float = 1.10
     bottom: float = 0.78
     side: float = 0.94
-    quiet_zone: int = 4  # modules of light margin around the symbol (ISO 18004 minimum)
 
     @property
     def size(self) -> int:
@@ -40,7 +39,7 @@ class Layout:
 
     @property
     def map_box(self) -> tuple[int, int, int, int]:
-        """Square map area (x0, y0, x1, y1). The QR symbol + quiet zone fills it."""
+        """Square map area (x0, y0, x1, y1) inside the graduated border."""
         s = self.size
         x0, y0 = self.px(self.side), self.px(self.top)
         side = min(s - 2 * x0, s - y0 - self.px(self.bottom))
@@ -55,21 +54,30 @@ BLOCK_WASH = (214, 140, 130)
 PARK_WASH = (170, 186, 128)
 FIELD_WASH = (222, 205, 150)
 
-# Tone targets in CIE L* (0 black .. 100 white) used by the QR compositor.
-# Light modules: the map remapped into [LIGHT_FLOOR, 100].
-# Dark modules: engraved rules of DARK_INK over gaps of [DARK_GAP_MIN, DARK_GAP_MAX].
-LIGHT_FLOOR = 52.0
-DARK_INK = 14.0
-DARK_GAP_MIN, DARK_GAP_MAX = 36.0, 68.0
-HATCH_PITCH = 0.021  # inches between engraved rules (~48 lines per inch)
-HATCH_INK = 0.52  # fraction of each pitch that is ink
-LIGHT_CHROMA = 0.85  # colour saturation multipliers
-DARK_CHROMA = 1.25
-# Module centres (the central CORE_FRACTION of each module, where decoders sample)
-# are pulled to at least this mean lightness (light) or at most this one (dark).
+# --- The hidden QR: a fabricated ward of small house blocks -------------------------
+# Each dark module is a hatched block, each light module a lane or yard. The ward sits
+# at DISTRICT_CENTER, turned DISTRICT_ANGLE degrees to match the street grid around it,
+# inside a ring of open ground (the quiet zone) where the real streets stop.
+DISTRICT_CENTER = (38.8276, -77.0572)  # Del Ray, the former Town of Potomac
+DISTRICT_ANGLE = 0.0  # degrees counter-clockwise; Old Town's grid is about -9
+MODULE_INCHES = 0.05  # printed module size; 0.05 in = 15 px at 300 dpi
+QUIET_MODULES = 3  # open ground around the symbol, in modules (ISO asks 4; 3 tests fine)
+ECC = "q"  # l/m/q/h. Clean rendering needs no art-damage budget; Q keeps modules large.
+HATCH_PITCH = 0.0125  # inches between engraved rules in the ward's blocks
+HATCH_INK = 0.55  # ink fraction of each pitch
+STREET_FRACTION = 0.16  # street width between built blocks, as a fraction of a module
+STREET_CHANCE = 0.7  # chance two neighbouring built blocks are split by a street
+LOT_INK = 80  # ink (0-255) of the faint outlines round open lots
+
+# Module centres (the central CORE_FRACTION, where decoders sample) are corrected only
+# if the finished art leaves them short of these mean CIE L* values.
 CORE_FRACTION = 0.36
 CORE_LIGHT = 80.0
-CORE_DARK = 36.0
-SOFTEN = 0.24  # blur sigma (in modules) that rounds dark modules into "parcels"
-OUTLINE_PX = 2.2  # width of the ink rule round each parcel, roughly in pixels
-INK_HUE = 0.75  # how far dark parcels on open ground take the ink's hue (0..1)
+CORE_DARK = 44.0
+
+# --- Legend cartouche (fallback for devices that cannot scan) ---------------------
+LEGEND_CENTER = (38.8395, -77.0300)  # in the river, where engravers put cartouches
+LEGEND_TITLE = "REFERENCES"
+LEGEND_NETWORK_LABEL = "Network"
+LEGEND_PASSWORD_LABEL = "Password"
+LEGEND_TEXT_INCHES = 0.13  # label size; values print slightly smaller in Caslon

@@ -23,7 +23,7 @@ class Code:
     dark: np.ndarray  # bool [n, n], True = dark module (no quiet zone)
     function: np.ndarray  # bool [n, n], finder/separator/timing/alignment/format/version
     finder: np.ndarray  # bool [n, n], finder patterns + separators
-    agreement: float  # fraction of data modules whose tone matches the art
+    agreement: float  # mask-selection score (see make)
 
     @property
     def n(self) -> int:
@@ -58,25 +58,24 @@ def _matrices(q):
     return dark, function, finder
 
 
-def make(payload: str, version: int | None = None, error: str = "h",
-         art_lightness: np.ndarray | None = None) -> Code:
-    """Build the symbol. If `art_lightness` (callable n -> [n, n] array in 0..1) is
-    given, try all eight masks and keep the one whose dark modules best coincide
-    with dark areas of the artwork. All masks are equally valid to decoders."""
+def blockiness(dark: np.ndarray, function: np.ndarray) -> float:
+    """How town-like the data area is: the share of dark data modules with a dark
+    neighbour to the right or below, so blocks join into streets of houses rather
+    than scattered single cells."""
+    d = dark & ~function
+    pairs = (d[:, :-1] & d[:, 1:]).sum() + (d[:-1, :] & d[1:, :]).sum()
+    return float(pairs / max(1, d.sum()))
+
+
+def make(payload: str, version: int | None = None, error: str = "q", score=None) -> Code:
+    """Build the symbol. With `score(dark, function) -> float`, try all eight masks and
+    keep the highest-scoring one; every mask is equally valid to decoders."""
     base = segno.make_qr(payload, error=error, version=version, boost_error=False)
     best = None
-    masks = range(8) if art_lightness is not None else [base.mask]
-    for mask in masks:
+    for mask in (range(8) if score else [base.mask]):
         q = segno.make_qr(payload, error=error, version=base.version, mask=mask, boost_error=False)
         dark, function, finder = _matrices(q)
-        agree = 0.0
-        if art_lightness is not None:
-            lum = art_lightness(dark.shape[0])
-            data = ~function
-            match = np.where(dark, lum < 0.5, lum >= 0.5)
-            # Weight by how strongly the art leans one way, so near-grey cells don't vote.
-            w = np.abs(lum - 0.5)[data]
-            agree = float((match[data] * w).sum() / max(w.sum(), 1e-9))
-        if best is None or agree > best.agreement:
-            best = Code(payload, base.version, base.error, mask, dark, function, finder, agree)
+        sc = score(dark, function) if score else 0.0
+        if best is None or sc > best.agreement:
+            best = Code(payload, base.version, base.error, mask, dark, function, finder, sc)
     return best
