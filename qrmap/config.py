@@ -144,3 +144,11 @@ LEGEND_TITLE = "REFERENCES"
 LEGEND_NETWORK_LABEL = "Network"
 LEGEND_PASSWORD_LABEL = "Password"
 LEGEND_TEXT_INCHES = 0.13  # label size; values print slightly smaller in Caslon
+# Lettered references above the Wi-Fi rows, keyed to letters on the map, as on an
+# engraved plan: `auto` picks real named buildings from OSM; a list of
+# {at: [lat, lon], text: ...} names your own; [] leaves them out.
+_refs = CFG.get("references", "auto")
+REFERENCES = None if _refs in (None, "auto") else \
+    [(float(r["at"][0]), float(r["at"][1]), str(r["text"])) for r in (_refs or [])]
+REFERENCE_COUNT = 6
+REFERENCE_MAX_CHARS = 26  # longer names would make the cartouche too wide

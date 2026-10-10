@@ -5,10 +5,11 @@ style plan of Alexandria**: Old Town, Rosemont, and Del Ray (the former Town of
 Potomac). The QR code is **hidden in the map** as a few made-up blocks of Del Ray. Every
 block on the map is drawn as house plots the size of one QR module, and in the hidden
 blocks a house is a dark module and an empty plot a light one. The finder patterns are
-courtyard blocks, a building type that turns up elsewhere in town too. A legend
-cartouche in the river gives the network name and password, with a small Wi-Fi mark,
-for any device that can't scan. Every build is checked by decoders before it counts as
-done.
+courtyard blocks, a building type that turns up elsewhere in town too. A table of
+references in the river gives the network name and password, with a small Wi-Fi mark,
+for any device that can't scan. They sit under lettered entries for real buildings on
+the sheet (Carlyle House, Christ Church…), keyed to letters on the map, so they read as
+two more references. Every build is checked by decoders before it counts as done.
 
 Alexandria is only the default. Set any centre point in `config.yaml` to map somewhere
 else (see [Mapping another place](#mapping-another-place)).
@@ -84,7 +85,7 @@ OSM extract ─► shapely blocks, cut back from every road ─► each block la
    finder       → courtyard block: terraced ring, court, hall in the middle
    quiet zone   → front gardens, a street round the ward, the neighbours' back yards
                                        │
-          legend cartouche + Wi-Fi mark · guard pass · frame ─► validate
+          references + Wi-Fi rows, letters on the map · guard pass · frame ─► validate
 ```
 
 - **One plot size for the whole town.** The scale is fixed so that a house plot on the
@@ -111,6 +112,15 @@ OSM extract ─► shapely blocks, cut back from every road ─► each block la
 - **ECC Q instead of H.** The modules are drawn cleanly rather than damaged by art,
   so a lower error-correction level is enough. That keeps the ward small: the demo
   payload is version 4, 33 × 33 modules, 1.65 in square.
+- **A real table of references.** Engraved plans keyed their notable buildings to
+  letters in a table. The cartouche does the same with up to six real named buildings
+  from OSM inside the sheet. Configured landmarks come first, then historic and civic
+  buildings, markets and museums, churches, then stations. Within each kind, shorter
+  names win, and the picks are spread apart and kept off the ward and the cartouche.
+  Each gets an engraved letter on the map (beside its symbol, if it is a landmark),
+  lettered north to south. The Network and Password rows follow in the same type and
+  leaders. Set `references:` in `config.yaml` to list your own (`{at: [lat, lon],
+  text: ...}`) or `[]` for none.
 - **Deterministic.** Every random choice (which plots are built, party walls, courts)
   comes from a fixed seed, so the same inputs give a byte-identical sheet.
 
@@ -173,7 +183,8 @@ With only those two keys:
   `ward.center` to move it off your house, and `ward.angle` to a number of degrees to
   turn it yourself.
 - **Legend:** goes in the lower-left corner. Open water is the traditional spot, if the
-  map has any (`legend.center`).
+  map has any (`legend.center`). Its references are picked from the named buildings
+  OSM has there.
 - **Place names:** come from OSM, ranked from city down to hamlet and placed away from
   the border. Large named waters are labelled at their widest point. A `labels:` list
   replaces them all with your own (see the Alexandria config). Labels get a knock-out
@@ -186,7 +197,9 @@ Older configs with `radius_miles` are rejected with a message saying to remove i
 ## Map data and accuracy
 
 - **`make fetch`** pulls roads, rail, water (including coastline handling), parks,
-  place names, and landmark positions for the `config.yaml` area from the Overpass API,
+  place names, landmark positions, and named buildings for the references (churches,
+  town hall, courthouse, market, museums, historic buildings, stations) for the
+  `config.yaml` area from the Overpass API,
   and caches them in `data/`. The cache file name includes a hash of the query, so
   changing the location or landmarks never reuses stale data; builds stop and ask for
   `make fetch` instead. Commit the cache file if you want reproducible builds.

@@ -58,6 +58,7 @@ class GeoModel:
     fields: list = field(default_factory=list)  # Polygon (open country, drawn as farmland)
     hills: list = field(default_factory=list)  # (x, y, radius_m)
     landmarks: list = field(default_factory=list)  # (x, y, kind, name)
+    pois: list = field(default_factory=list)  # (x, y, kind, name): named buildings for references
     labels: list = field(default_factory=list)  # Label
 
     def blocks(self, min_area=1_500, max_area=160_000):

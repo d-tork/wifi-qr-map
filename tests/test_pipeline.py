@@ -176,3 +176,37 @@ def test_block_plots_fill_the_block_deterministically():
     assert all(block.buffer(1e-6).contains(Polygon(h)) for h in built)
     court = houses.block_plots(rotate(box(0, 0, 330, 330), 30, origin=(0, 0)), 30, np.random.default_rng(1), True)
     assert court[2]
+
+
+def test_references_pick_real_buildings(monkeypatch):
+    from qrmap import render_map
+    from qrmap.geo import GeoModel
+    cv = render_map.Canvas(config.Layout(dpi=100), 1)
+    w = FRAME.bounds[2]
+    m = GeoModel(source="test")
+    m.landmarks = [(w * 0.5, w * 0.5, "church", "Christ Church")]
+    m.pois = [(w * 0.52, w * 0.5, "historic", "Too Close House"),  # crowds the landmark
+              (w * 0.2, w * 0.8, "station", "Depot"),
+              (w * 0.8, w * 0.2, "historic", "Carlyle House"),
+              (w * 0.8, w * 0.8, "church", "A Church Whose Name Runs Far Too Long"),
+              (w * 0.2, w * 0.2, "museum", "Lyceum"),
+              (w * 0.99, w * 0.5, "civic", "Edge Hall")]  # on the neat line
+    monkeypatch.setattr(config, "REFERENCES", None)
+    names = [n for _, _, n in render_map._references(m, cv, [])]
+    assert sorted(names) == ["Carlyle House", "Christ Church", "Depot", "Lyceum"]
+    assert names[0] == "Depot"  # lettered north to south: Depot is at the top
+    x, y = cv.xy(w * 0.2, w * 0.2)
+    avoid = [(x - 5, y - 5, x + 5, y + 5)]  # e.g. the ward
+    assert "Lyceum" not in [n for _, _, n in render_map._references(m, cv, avoid)]
+    monkeypatch.setattr(config, "REFERENCES", [(S + 0.001, W + 0.001, "Mine")])
+    assert [n for _, _, n in render_map._references(m, cv, [])] == ["Mine"]
+
+
+def test_legend_lists_references_before_wifi_rows():
+    from qrmap import render_map, ward
+    cv = render_map.Canvas(config.Layout(dpi=100), 1)
+    lg = {"title": "REFERENCES", "rows": [("Network", "Guest")], "refs": [("A", "Carlyle House")]}
+    L = ward.legend_box(cv, lg, render_map.font)
+    assert L["rows"] == [("A", "Carlyle House"), ("Network", "Guest")] and L["icon_row"] == 1
+    x0, y0, x1, y1 = L["box"]
+    assert cv.box[0] <= x0 < x1 <= cv.box[2] and cv.box[1] <= y0 < y1 <= cv.box[3]

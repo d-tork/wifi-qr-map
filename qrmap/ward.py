@@ -98,36 +98,42 @@ def wifi_mark(draw, cx, cy, s, fill=255, width=2):
         draw.arc([cx - rad, cy - rad, cx + rad, cy + rad], 222, 318, fill=fill, width=width)
 
 
-def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list):
-    """A ruled cartouche: title, then 'label ...... value' rows."""
+def legend_box(cv, legend: dict, font) -> dict:
+    """Fonts, metrics and the box (supersampled pixels) of the cartouche: title, then
+    'label ...... value' rows, the lettered references first and the Wi-Fi rows after."""
     from .geo import proj
 
     ss, dpi = cv.ss, cv.layout.dpi
     base = dpi * ss * config.LEGEND_TEXT_INCHES
-    f_title = font("caps", base * 1.05)
-    f_label = font("italic", base)
-    f_value = font("caslon", base * 0.95)
-    rows = legend["rows"]
-    pad = base * 0.9
-    leader = base * 1.6
-    icon = base * 1.1
-    lab_w = max(f_label.getlength(lb) for lb, _ in rows) + icon * 1.4
-    val_w = max(f_value.getlength(v) for _, v in rows)
-    title_w = f_title.getlength(" ".join(legend["title"]))
-    inner_w = max(lab_w + leader + val_w, title_w)
-    line_h = base * 1.55
-    W = inner_w + 2 * pad
-    H = pad * 2 + line_h * (len(rows) + 1.2)
+    L = {"base": base, "f_title": font("caps", base * 1.05), "f_label": font("italic", base),
+         "f_value": font("caslon", base * 0.95), "pad": base * 0.9, "icon": base * 1.1,
+         "line_h": base * 1.55, "rows": [*legend.get("refs", []), *legend["rows"]],
+         "icon_row": len(legend.get("refs", []))}
+    rows = L["rows"]
+    lab_w = max(L["f_label"].getlength(lb) for lb, _ in rows) + L["icon"] * 1.4
+    val_w = max(L["f_value"].getlength(v) for _, v in rows)
+    L["title_w"] = L["f_title"].getlength(" ".join(legend["title"]))
+    W = max(lab_w + base * 1.6 + val_w, L["title_w"]) + 2 * L["pad"]
+    H = L["pad"] * 2 + L["line_h"] * (len(rows) + 1.2)
 
     cx, cy = cv.xy(*proj(*legend.get("center", config.LEGEND_CENTER)))
     bx0, by0, bx1, by1 = cv.box
-    m = base
-    cx = min(max(cx, bx0 + W / 2 + m), bx1 - W / 2 - m)
-    cy = min(max(cy, by0 + H / 2 + m), by1 - H / 2 - m)
-    x0, y0, x1, y1 = cx - W / 2, cy - H / 2, cx + W / 2, cy + H / 2
+    cx = min(max(cx, bx0 + W / 2 + base), bx1 - W / 2 - base)
+    cy = min(max(cy, by0 + H / 2 + base), by1 - H / 2 - base)
+    L["box"] = (cx - W / 2, cy - H / 2, cx + W / 2, cy + H / 2)
+    return L
+
+
+def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list):
+    """A ruled cartouche, as on an engraved plan's table of references."""
+    L = legend_box(cv, legend, font)
+    base, pad, icon = L["base"], L["pad"], L["icon"]
+    f_label, f_value = L["f_label"], L["f_value"]
+    x0, y0, x1, y1 = L["box"]
+    cx = (x0 + x1) / 2
     for img in layers.values():
         ImageDraw.Draw(img).rectangle([x0, y0, x1, y1], fill=0)
-    occupied.append((x0, y0, x1, y1))
+    occupied.append(L["box"])
 
     d = ImageDraw.Draw(layers["ink"])
     w = max(1, round(lw))
@@ -136,13 +142,14 @@ def draw_legend(cv, layers: dict, legend: dict, lw: float, font, occupied: list)
     d.rectangle([x0 + g, y0 + g, x1 - g, y1 - g], outline=200, width=w)
 
     ty = y0 + pad + base * 0.55
-    d.text((cx, ty), " ".join(legend["title"]), font=f_title, fill=245, anchor="mm")
+    title_w = L["title_w"]
+    d.text((cx, ty), " ".join(legend["title"]), font=L["f_title"], fill=245, anchor="mm")
     d.line([cx - title_w * 0.35, ty + base * 0.75, cx + title_w * 0.35, ty + base * 0.75], fill=170, width=w)
 
-    for i, (label, value) in enumerate(rows):
-        y = ty + line_h * (i + 1.15)
+    for i, (label, value) in enumerate(L["rows"]):
+        y = ty + L["line_h"] * (i + 1.15)
         lx = x0 + pad
-        if i == 0:
+        if i == L["icon_row"]:
             wifi_mark(d, lx + icon * 0.45, y + base * 0.22, icon * 0.5, fill=225, width=w + 1)
         lx += icon * 1.4
         d.text((lx, y), label, font=f_label, fill=240, anchor="lm")

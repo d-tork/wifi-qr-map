@@ -289,7 +289,7 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
     layers["ink"] = Image.fromarray(ink)
     d["ink"] = ImageDraw.Draw(layers["ink"])
 
-    occupied = []
+    occupied, refs = [], []
     if district is not None:
         ward.draw_ward(cv, layers, district, code, rng, lw, _long_axis(near_ward, district))
         for yard, edge in back_yards:
@@ -299,10 +299,20 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
                 d["ink"].line(list(ls.coords), fill=235, width=max(1, round(lw * 1.3)), joint="curve")
         occupied.append(district.bbox(ss, extra=0.5))
     if legend:
+        # Lettered references to real buildings, kept off the ward and the cartouche.
+        avoid = list(occupied)
+        for _ in range(3):
+            refs = _references(model, cv, avoid)
+            legend = {**legend, "refs": [(chr(65 + i), n) for i, (_, _, n) in enumerate(refs)]}
+            cartouche = ward.legend_box(cv, legend, font)["box"]
+            if not any(_inside(cartouche, x, y, cv.m(40)) for x, y, _ in refs):
+                break
+            avoid.append(cartouche)
         ward.draw_legend(cv, layers, legend, lw, font, occupied)
     houses.finish(cv, layers)
     d = {k: ImageDraw.Draw(v) for k, v in layers.items()}
     _landmarks(cv, d["ink"], model, lw, occupied)
+    _reference_letters(cv, layers["ink"], model, refs, occupied)
     _place_labels(cv, layers["ink"], model, roads, occupied, rng)
     _compass(cv, ImageDraw.Draw(layers["ink"]), round(0.95 * layout.dpi * ss), lw)
 
@@ -320,7 +330,7 @@ def render(model: GeoModel, layout: config.Layout, ss: int = 2, seed: int = 1749
         rgb = rgb * (1 - a) + rgb * (np.array(col, np.float32) / 255) * a  # multiply wash
     ia = (np.clip(to1["ink"] * 1.05, 0, 1) * 0.94)[..., None] * inside
     rgb = rgb * (1 - ia) + (np.array(config.INK, np.float32) / 255) * ia
-    return {"rgb": np.clip(rgb, 0, 1), "courts": len(courts), **{k: to1[k] for k in ("water", "houses", "ink")}}
+    return {"rgb": np.clip(rgb, 0, 1), "courts": len(courts), "references": [n for _, _, n in refs], **{k: to1[k] for k in ("water", "houses", "ink")}}
 
 
 def _long_axis(blocks, district) -> str:
@@ -388,6 +398,54 @@ def _landmarks(cv: Canvas, draw, model: GeoModel, lw, occupied):
                 ar = math.radians(a)
                 draw.line([cx + r0 * math.cos(ar), cy - s * .8 + r0 * math.sin(ar),
                            cx + r1 * math.cos(ar), cy - s * .8 + r1 * math.sin(ar)], fill=200, width=w)
+
+
+# Order of preference for named buildings (osm.POI_TAGS kinds); configured landmarks
+# come before all of them.
+REFERENCE_RANK = {"historic": 1, "civic": 1, "market": 2, "museum": 2, "church": 3, "station": 4}
+
+
+def _references(model: GeoModel, cv: Canvas, avoid: list) -> list:
+    """Up to REFERENCE_COUNT (x, y, name) in canvas pixels, read north to south and west
+    to east, so they letter A, B, C... in the order a reader scans the plan. From
+    config.yaml's `references:` list, or else real named buildings: landmarks and
+    historic or civic buildings first, then markets and museums, churches, stations,
+    spread out across the town."""
+    x0, y0, x1, y1 = cv.box
+    inset = (x1 - x0) * 0.04
+    if config.REFERENCES is not None:
+        picks = [(*cv.xy(*proj(la, lo)), t) for la, lo, t in config.REFERENCES]
+    else:
+        cands, seen = [], set()
+        for x, y, kind, name in [*model.landmarks, *model.pois]:
+            if not name or name in seen or len(name) > config.REFERENCE_MAX_CHARS or name.endswith("District"):
+                continue
+            seen.add(name)
+            cx, cy = cv.xy(x, y)
+            if not (x0 + inset < cx < x1 - inset and y0 + inset < cy < y1 - inset):
+                continue
+            if any(_inside(bb, cx, cy, cv.m(60)) for bb in avoid):
+                continue
+            pri = 0 if (x, y, kind, name) in model.landmarks else REFERENCE_RANK.get(kind, 5)
+            cands.append((pri, len(name), name, cx, cy))  # short names read more like a period table
+        picks, spread = [], (x1 - x0) / 7
+        for *_, name, cx, cy in sorted(cands):
+            if len(picks) < config.REFERENCE_COUNT and all(math.dist((cx, cy), p[:2]) > spread for p in picks):
+                picks.append((cx, cy, name))
+    return sorted(picks, key=lambda p: (round(p[1] / ((y1 - y0) / 6)), p[0]))
+
+
+def _reference_letters(cv: Canvas, ink_img, model, refs, occupied):
+    """A, B, C... engraved beside each referenced building (beside its symbol, if the
+    building is also a drawn landmark)."""
+    fnt = font("caps", cv.layout.dpi * cv.ss * 0.115 * 1.35)
+    s = cv.m(22)  # landmark symbol size (see _landmarks)
+    marks = [cv.xy(x, y) for x, y, _, _ in model.landmarks]
+    for i, (cx, cy, _) in enumerate(refs):
+        near = [m for m in marks if math.dist((cx, cy), m) < s * 3]
+        if near:  # letter to the right of the symbol, clear of its halo
+            cx, cy = near[0][0] + s * 1.2 + fnt.size * 0.6, near[0][1]
+        _stamp(ink_img, _text_img(chr(65 + i), fnt, 0), cx, cy, 0, occupied, force=True)
 
 
 def _text_img(text, fnt, tracking_px):

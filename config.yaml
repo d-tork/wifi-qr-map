@@ -14,14 +14,18 @@ ward:                        # the hidden QR code
   angle: auto                # follow the nearest major street, or degrees counter-clockwise
 
 legend:
-  center: [38.8268, -77.0335]  # in the river; default: the lower-left corner of the map
+  center: [38.8232, -77.0330]  # in the river; default: the lower-left corner of the map
+
+# Table of references above the Wi-Fi rows, lettered on the map. Default (auto): up to six
+# real named buildings from OSM, landmarks first. Or list your own, or [] for none:
+# references:
+#   - {at: [38.8048, -77.0434], text: Carlyle House}
 
 # OSM features (exact `name` tag) drawn as symbols: temple | church | market | lighthouse
 landmarks:
   George Washington Masonic National Memorial: temple
-  Christ Church: church
-  Market Square: market
-  Jones Point Lighthouse: lighthouse
+  Christ Episcopal Church: church
+  Old Town Farmers' Market: market
 
 # Hachured hills: [lat, lon, radius in metres]
 hills:

@@ -134,6 +134,7 @@ def build(a) -> Path:
         "district": dist.to_dict(), "module_inches": dist.module / layout.dpi, "map_source": model.source,
         "legend_labels": [lb for lb, _ in legend["rows"]] if legend else [],
         "legend_shows_password": bool(legend) and len(legend["rows"]) > 1,
+        "legend_references": art["references"],
         "guard_corrections": fixed,
         "matrix": _bits(code.dark), "function": _bits(code.function),
     }
